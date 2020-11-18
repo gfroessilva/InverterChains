@@ -3,7 +3,7 @@
 clf
 clear
 % Number of inverters
-n = 3;
+n = 500;
 rng(1);
 %% Set to 1 if random values of rated powers and loads for different tests are sought
 %% r = 0 uses a saved example with n = 6 
@@ -85,16 +85,16 @@ end
 
 
 initial_state = [0*ones(n-1,1);0*rand(n,1);z0];  %% for incremental
-initial_state = [0*ones(n,1);wref+dw;z0];           %% for absolute
+% initial_state = [0*ones(n,1);wref+dw;z0];           %% for absolute
 
-simulation_time = 0:500;
+simulation_time = 0:100;
 
-[time,y] = ode45(@(tt,yy)inverters(yy,n,tau,eta,k,Pl,B,wref,Lambda),...
-    simulation_time,initial_state);
-% [time,y] = ode45(@(tt,yy)inverters_theta(yy,n,tau,eta,k,Pl,B,Lambda),...
+% [time,y] = ode45(@(tt,yy)inverters(yy,n,tau,eta,k,Pl,B,wref,Lambda),...
 %     simulation_time,initial_state);
+[time,y] = ode45(@(tt,yy)inverters_theta(yy,n,tau,eta,k,Pl,B,Lambda),...
+    simulation_time,initial_state);
 
-Frequency_error=y(end,[n+1:2*n])-wref';
+Frequency_error=y(end,n+1:2*n)-wref';
 Secondary_steady_state_value=y(end,end-n+1:end);
 
 S = diag(ones(1,n))-diag((ones(1,n-1)),-1); % to calculate ang differences
@@ -104,8 +104,8 @@ V = [eye(n-1) -ones(n-1,1)];
 
 %%
 figure(1)
-plot(time,wrapToPi(y(:,1:1)),'LineWidth',2);
-plot(time,(y(:,1:1)),'*--','LineWidth',1)
+plot(time,wrapToPi(y(:,1:n-1)),'LineWidth',2);
+plot(time,(y(:,1:n-1)),'-','LineWidth',2)
 title('Angles \delta_i')
 set(gca,'FontSize',16,'LineWidth',3,'Box','on')
 grid on
@@ -121,7 +121,7 @@ grid on
 %%
 figure(3)
 plot(time,y(:,n:2*n-1),'LineWidth',2) %% for incremental
-plot(time,y(:,n+1:2*n),'LineWidth',2) %% for absolute
+% plot(time,y(:,n+1:2*n),'LineWidth',2) %% for absolute
 title('Frequency')
 set(gca,'FontSize',16,'LineWidth',3,'Box','on')
 grid on
@@ -129,7 +129,7 @@ grid on
 %%
 figure(4)
 plot(time,y(:,2*n:end),'LineWidth',2) %% for incremental
-plot(time,y(:,2*n+1:end),'LineWidth',2) %% for absolute
+% plot(time,y(:,2*n+1:end),'LineWidth',2) %% for absolute
 title('Secondary variable')
 set(gca,'FontSize',16,'LineWidth',3,'Box','on')
 grid on
@@ -176,7 +176,9 @@ function dydt = inverters_theta(state,n,tau,eta,k,Pl,B,Lambda,t)
     N = diag(eta);
     Ki = 1*diag(ones(1,n)./k);
     
-    A = [zeros(n-1,n-1), V, 0*V; zeros(n,n-1), -Ti, Ti; zeros(n,n-1), -Ki, -Ki*Lambda];
+    A = [zeros(n-1,n-1), V, 0*V;
+        zeros(n,n-1), -Ti, Ti;
+        zeros(n,n-1), -Ki, -Ki*Lambda];
 
     Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1);
     FF=[(-B(1:n-1,:).*sin(Delta(1:n-1,:)))*Ii; -B(n,n-1)*sin(state(n))];
