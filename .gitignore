@@ -1,1 +1,6 @@
 results/
+*.eps
+*.fig
+*.mat
+*.pdf
+*.asv
