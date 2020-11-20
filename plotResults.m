@@ -2,7 +2,7 @@ function plotResults(invChains,ChainToPlot,N,control,vars,wrap)
 time = invChains(ChainToPlot).time; 
 y = invChains(ChainToPlot).y;
 u = invChains(ChainToPlot).u;
-n =  invChains(ChainToPlot).n;
+n =  invChains(ChainToPlot).sys.n;
 S = diag(ones(1,n))-diag((ones(1,n-1)),-1); % to calculate ang differences
     %S=S(1:n-1,1:n-1);
 Del = S'*y(:,1:n)'; % delta (angle differences)
