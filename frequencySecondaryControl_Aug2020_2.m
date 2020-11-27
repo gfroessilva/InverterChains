@@ -3,7 +3,7 @@
 clf
 clear
 % Number of inverters
-n = 500;
+n = 3;
 rng(1);
 %% Set to 1 if random values of rated powers and loads for different tests are sought
 %% r = 0 uses a saved example with n = 6 
@@ -84,15 +84,15 @@ if r == 1
 end
 
 
-initial_state = [0*ones(n-1,1);0*rand(n,1);z0];  %% for incremental
-% initial_state = [0*ones(n,1);wref+dw;z0];           %% for absolute
+% initial_state = [0*ones(n-1,1);1*rand(n,1);z0];  %% for incremental
+initial_state = [0*ones(n,1);wref+dw;z0];           %% for absolute
 
 simulation_time = 0:100;
 
-% [time,y] = ode45(@(tt,yy)inverters(yy,n,tau,eta,k,Pl,B,wref,Lambda),...
-%     simulation_time,initial_state);
-[time,y] = ode45(@(tt,yy)inverters_theta(yy,n,tau,eta,k,Pl,B,Lambda),...
+[time,y] = ode45(@(tt,yy)inverters(yy,n,tau,eta,k,Pl,B,wref,Lambda),...
     simulation_time,initial_state);
+% [time,y] = ode45(@(tt,yy)inverters_theta(yy,n,tau,eta,k,Pl,B,Lambda),...
+%     simulation_time,initial_state);
 
 Frequency_error=y(end,n+1:2*n)-wref';
 Secondary_steady_state_value=y(end,end-n+1:end);
@@ -121,7 +121,7 @@ grid on
 %%
 figure(3)
 plot(time,y(:,n:2*n-1),'LineWidth',2) %% for incremental
-% plot(time,y(:,n+1:2*n),'LineWidth',2) %% for absolute
+plot(time,y(:,n+1:2*n),'LineWidth',2) %% for absolute
 title('Frequency')
 set(gca,'FontSize',16,'LineWidth',3,'Box','on')
 grid on
@@ -129,7 +129,7 @@ grid on
 %%
 figure(4)
 plot(time,y(:,2*n:end),'LineWidth',2) %% for incremental
-% plot(time,y(:,2*n+1:end),'LineWidth',2) %% for absolute
+plot(time,y(:,2*n+1:end),'LineWidth',2) %% for absolute
 title('Secondary variable')
 set(gca,'FontSize',16,'LineWidth',3,'Box','on')
 grid on
@@ -147,13 +147,17 @@ function dydt = inverters(state,n,tau,eta,k,Pl,B,wref,Lambda)
     N = diag(eta);
     Ki = 1*diag(ones(1,n)./k);
     
-    A = [O, I, O; O, -Ti, Ti; O, -Ki, -Ki*Lambda];   
-    Aref =[O, O; Ti, Ti*N; Ki, O];    
+    A = [O, I, O;
+        O, -Ti, Ti;
+        O, -Ki, -Ki*Lambda];   
+    Aref =[O, O;
+        Ti, Ti*N;
+        Ki, O];    
        
     %state(1:n) = wrapToPi(state(1:n));
     Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1); 
     % Delta is defined just for F, as F = bij*V^2*sin(delta_i-delta_j)
-    F=(B.*sin(Delta))*Ii; % 
+    F=-(B.*sin(Delta))*Ii; % 
      
     dydt = A * state + Aref * [wref;Pl] ... % free term + disturbance
            + [zeros(n,1);Ti*N*F;zeros(n,1)]; % non-linear term
@@ -180,8 +184,8 @@ function dydt = inverters_theta(state,n,tau,eta,k,Pl,B,Lambda,t)
         zeros(n,n-1), -Ti, Ti;
         zeros(n,n-1), -Ki, -Ki*Lambda];
 
-    Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1);
-    FF=[(-B(1:n-1,:).*sin(Delta(1:n-1,:)))*Ii; -B(n,n-1)*sin(state(n))];
+    Delta = repmat(state(1:n-1),1,n-1) - repmat(state(1:n-1)',n-1,1);
+    FF=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1); -B(n,n-1)*sin(state(n-1))];
  
     dydt = A * state + [zeros(n-1,1);Ti*(N*Pl);zeros(n,1)] ... % disturbance
            + [zeros(n-1,1);Ti*N*FF;zeros(n,1)]; % non-linear term  

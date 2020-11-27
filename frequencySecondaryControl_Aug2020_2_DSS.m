@@ -6,24 +6,24 @@ clear invChains
 rng(1);
 
 save_results = 0;
-desc = 'smalltol';
+desc = 'v1';
 
 plot_results = 1;
 save_plots = 0;
 wrap = 0;
 
 % Number of inverters
-N = 5:10;
+N = [5];
 % N=10;
     
 vars = 'absolute';
-% vars = 'incremental';
+vars = 'incremental';
 controllers = ["Org"];
 controllers = [controllers "DSS"];
 control_plot = "Org"; 
 control_plot = "DSS";
-simtime = containers.Map({'DSS','Org'},{100, 100});
-PlDist = containers.Map({'DSS','Org'},{0, 0}); % should use the same!!!
+simtime = containers.Map({'DSS','Org'},{300, 300});
+PlDist = containers.Map({'DSS','Org'},{500000, 50}); % should be the same!
 
 % Set to 1 if random values of rated powers and loads for different tests
 % are sought, r = 0 uses a saved example with n = 6 
@@ -82,9 +82,10 @@ elseif ~exist('ctrl','var')
         error(exp.message);
     end 
     if constraints == 0
+        clear ctrl sol
         error('constraints not satisfied during optimisation')
     end
-    ctrl = sol;
+    ctrl = sol
 end
 % Removing the additional term in the secondary variable dynamics
 ctrl.Yi = 0; 
@@ -196,7 +197,7 @@ for n = N
                 end
             end
         else 
-            initial_state = [0*ones(n,1);wref+dw;xi0];           %% for absolute
+            initial_state = [1*ones(n,1);wref+dw;xi0];           %% for absolute
             if control == "DSS"
                 [time,y] = ode45(@inverters_dss,[0 sys.simtime], ...
                     initial_state, opts,sys,ctrl);
@@ -216,8 +217,8 @@ for n = N
                     ttt = find(ismember(time,tt));
                     [dx, u] = inverters(tt,y(ttt,:)',sys,tau,eta,k);
                     u_final(ttt,:) = u;
-                end                    
-            end            
+                end
+            end
         end
 
         Frequency_error=y(end,[n+1:2*n])-wref';
@@ -301,7 +302,7 @@ end
 if plot_results == 1
     ChainLength = N(1);
     ChainToPlot = find(ismember(N,ChainLength));    
-    control_plot = "DSS";
+%     control_plot = "DSS";
     if length(controllers)>1&&control_plot == "DSS"
         ChainToPlot = ChainToPlot + 1;
     end
@@ -316,7 +317,7 @@ if plot_results == 1
 end
 
 %% ------------------------------------------------------------------------
-function [dydt, u] = inverters(t, state, sys, tau, eta, k)
+function [dydt, u, P, Q] = inverters(t, state, sys, tau, eta, k)
 % Implements the inverter system in the absolute variables
 n = sys.n;
 wref = sys.wref;
@@ -336,6 +337,14 @@ Ti = diag(ones(1,n)./tau);
 N = diag(eta);
 Ki = 1*diag(ones(1,n)./k);
 
+Pldist = 0;
+if t>simtime/2 % constant disturbance in Pl after half simulation time
+    Pldist = PlDist;
+end
+Pll = Pl(1:end-1) + Pldist;
+% Pll(end+1) = 0;
+Pll(end+1) = Pl(end) + Pldist;
+
 A = [O, I, O;
     O, -Ti, Ti;
     O, -Ki, -Ki*Lambda];   
@@ -347,10 +356,10 @@ Aref =[O, O;
 
 Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1); 
 % Delta is defined just for F, as F = bij*V^2*sin(delta_i-delta_j)
-F=(B.*sin(Delta))*Ii; % 
+F=-(B.*sin(Delta))*Ii; % 
 
 dydt = A * state + ...  % free term 
-    Aref * [wref;Pl] ...reference (accounts for -w* in (21)) + disturbance
+    Aref * [wref;Pll] ...reference (accounts for -w* in (21)) + disturbance
        + [zeros(n,1);Ti*N*F;zeros(n,1)]; % non-linear term
 %dydt(1:n-1)= wrapToPi(dydt(1:n-1));
 
@@ -359,7 +368,7 @@ Au = [zeros(n), -Ti, Ti];
 u = Au*state + Ti*N*F;
 end
 
-function [dydt, u] = inverters_dss(t, state, sys, ctrl)
+function [dydt, u, P, Q] = inverters_dss(t, state, sys, ctrl)
 % Implements the inverter system in the absolute variables with extra
 % controller gains to satisfy Monteil et al's DSS conditions.
 
@@ -381,6 +390,14 @@ Ti = diag(ones(1,n)./ctrl.tau);
 N = diag(ctrl.etai);
 Ki = 1*diag(ones(1,n)./ctrl.ki);
 
+Pldist = 0;
+if t>simtime/2 % constant disturbance in Pl after half simulation time
+    Pldist = PlDist;
+end
+Pll = Pl(1:end-1) + Pldist;
+% Pll(end+1) = 0;
+Pll(end+1) = Pl(end) + Pldist;
+
 A = [O, I, O;
     O, -Ti*ctrl.Oi, Ti*ctrl.Zi;
     O, -Ki*ctrl.Li, -Ki*Lambda];   
@@ -393,10 +410,10 @@ Aref =[O, O;
 
 Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1); 
 % Delta is defined just for F, as F = bij*V^2*sin(delta_i-delta_j)
-F=(B.*sin(Delta))*Ii; 
+F=-(B.*sin(Delta))*Ii; 
 
 dydt = A * state + ...  % free term 
-    Aref * [wref;Pl] ...reference (accounts for -w* in (21)) + disturbance
+    Aref * [wref;Pll/ctrl.Oi] ...reference (accounts for -w* in (21)) + disturbance
        + [zeros(n,1);Ti*N*F;zeros(n,1)]; % non-linear term
 %dydt(1:n-1)= wrapToPi(dydt(1:n-1));
 
@@ -405,7 +422,7 @@ Au = [zeros(n,n), -Ti*ctrl.Oi, Ti*ctrl.Zi];
 u = Au*state + Ti*N*F;
 end
 
-function [dydt, u] = inverters_theta(t, state, sys, tau, eta, k)
+function [dydt, u, P, Q] = inverters_theta(t, state, sys, tau, eta, k)
 % Implements the inverter system in the incremental variables as per
 % Schiffer et al's transformations
 
@@ -429,19 +446,22 @@ N = diag(eta);
 Ki = 1*diag(ones(1,n)./k);
 
 Pldist = 0;
-if t>simtime*1/4 % constant disturbance in Pl after half simulation time
+if t>150 % constant disturbance in Pl after half simulation time
     Pldist = PlDist;
 end
+Pll = Pl(1:end-1) + Pldist;
+% Pll(end+1) = 0;
+Pll(end+1) = Pl(end) + Pldist;
 
 A = [zeros(n-1,n-1), V, 0*V;
     zeros(n,n-1), -Ti*1, Ti;
     zeros(n,n-1), -Ki, -Ki*Lambda];
 
-Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1);
-FF=[(-B(1:n-1,:).*sin(Delta(1:n-1,:)))*Ii; -B(n,n-1)*sin(state(n))];
+Delta = repmat(state(1:n-1),1,n-1) - repmat(state(1:n-1)',n-1,1);
+FF=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1); -B(n,n-1)*sin(state(n-1))];
 
 dydt = A * state...
-    + [zeros(n-1,1);Ti*(N*(Pl+Pldist));zeros(n,1)] ... % disturbance (Gill: ci)
+    + [zeros(n-1,1);Ti*(N*(Pll));zeros(n,1)] ... % disturbance (Gill: ci)
     + [zeros(n-1,1);Ti*N*FF;zeros(n,1)]; % non-linear term  
 
 Au = [zeros(n,n-1), -Ti, Ti];
@@ -449,7 +469,7 @@ Au = [zeros(n,n-1), -Ti, Ti];
 u = Au*state + Ti*N*FF;
 end
 
-function [dydt, u] = inverters_theta_dss(t, state, sys, ctrl)
+function [dydt, u, P, Q] = inverters_theta_dss(t, state, sys, ctrl)
 % Implements the inverter system in the incremental variables as per
 % Schiffer et al's transformations, with extra controller gains to satisfy
 % Monteil et al's DSS conditions. 
@@ -466,27 +486,28 @@ PlDist = sys.PlDist;
 
 I = eye(n);
 O = zeros(n,n);
-Ii= ones(n,1);
-V=[eye(n-1) -ones(n-1,1)];
+Ii = ones(n,1);
+V = [eye(n-1) -ones(n-1,1)];
 
 Ti = diag(ones(1,n)./ctrl.tau);
 N = diag(ctrl.etai);
 Ki = 1*diag(ones(1,n)./ctrl.ki);
 
 Pldist = 0;
-if t>simtime/2 % constant disturbance in Pl after half simulation time
+if t>150 % constant disturbance in Pl 
     Pldist = PlDist;
 end
+Pll = Pl(1:end-1) + Pldist;
+% Pll(end+1) = 0;
+Pll(end+1) = Pl(end) + Pldist;
 
 A = [zeros(n-1,n-1), V, 0*V;
     zeros(n,n-1), -Ti*ctrl.Oi, Ti*ctrl.Zi;
     zeros(n,n-1), -Ki*ctrl.Li, -Ki*Lambda];
 
-Delta = repmat(state(1:n),1,n) - repmat(state(1:n)',n,1);
-FF=[(-B(1:n-1,:).*sin(Delta(1:n-1,:)))*Ii; -B(n,n-1)*sin(state(n))];
-Pll = Pl(1:end-1) + Pldist;
-% Pll(end+1) = 0;
-Pll(end+1) = Pl(end) + Pldist;
+Delta = repmat(state(1:n-1),1,n-1) - repmat(state(1:n-1)',n-1,1);
+FF=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1);
+    -B(n,n-1)*sin(state(n-1))];
 
 dydt = A * state...
     + [zeros(n-1,1); Ti*(N*(Pll)); zeros(n,1)] ... % disturbance
@@ -495,4 +516,7 @@ dydt = A * state...
 Au = [zeros(n,n-1), -Ti*ctrl.Oi, Ti*ctrl.Zi];
 
 u = Au*state + Ti*N*FF;
+
+% P = Pll + V^2*sin(Delta);
+% Q = Qll + V^2*cos(Delta);
 end
