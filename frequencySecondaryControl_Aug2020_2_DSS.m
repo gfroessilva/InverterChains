@@ -26,8 +26,8 @@ simtime = containers.Map({'DSS','Org'},{300, 300});
 PlDist = containers.Map({'DSS','Org'},{500000, 50}); % should be the same!
 
 % Set to 1 if random values of rated powers and loads for different tests
-% are sought, r = 0 uses a saved example with n = 6 
-r = 1;
+% are sought, r = 0 uses Simpson-Porco (2015)
+r = 0;
 if r == 0
     load inverters
 end
@@ -47,7 +47,8 @@ invChains(length(N)) = struct(...
 %% Parameters 
 % Per unit bases
 Pbase = 1; % in kilovolt-ampere [kVA]
-Vbase = 415; % in volt [V]
+Qbase = 1; % in kilovolt-ampere [kVAr] (?)
+Vbase = 325.3; % in volt [V]
 Zbase = Vbase*Vbase/(Pbase*1000);
 Ybase = 1/Zbase;
 
@@ -55,14 +56,13 @@ Ybase = 1/Zbase;
 freq = 50; %[Hz]
 
 % The rated power of the inverters (Pos?)
-% PastPos = [1, 2, 1.5]; % from Majumder (2009) (original)
-PastPos = [1, 2, 1.5, 1.5]; % from Majumder (2009)
+PastPos = [1.4, .7, .7, 1.4]; % from Simpson-Porco (2015)
+QastPos = [.8, .4, .4, .8]; % from Simpson-Porco (2015)
 % The active power of loads (this corresponds to the error P_i^*-P_{Li}
-% PlPos = [1.8, 0.8, 0,3]; % original
-PlPos = [1.8, 0.8, 0.8, 0.8, 1.8];
+PlPos = [1, 0, 0, 1]; % Simpson-Porco (2015) does not report Pl...
 
 % The reactive power of loads (corresponds to Q_i^* - Q_L)
-QlPos = [1.6, 0.6, 0.6, 0.6, 1.6]; % from Majumder (2009)
+QlPos = [1, 0, 0, 1]; % from Majumder (2009)
 
 % The inductive part of the lines is a fraction of 
 bij = -1/0.6; % from Majumder (2009)
@@ -87,32 +87,40 @@ elseif ~exist('ctrl','var')
     end
     ctrl = sol
 end
-% Removing the additional term in the secondary variable dynamics
-ctrl.Yi = 0; 
-ctrl.Oi = 1;
 
 %% Simulating
 i = 1;
 for n = N    
-    if r == 1
+    if r==1
         Past = datasample(PastPos,n)';
-    end
-    % per unit
-    Past = Past/Pbase;
-%     Past = ones(n,1);
-
-    % Choosing appropriate values for the controllers
-    tau = 10*ones(1,n);
-    eta = 1./Past/100;
-    k = 1.7 * ones(1,n);
-
-    % A particular load condition
-    %Pl=[1.8000    1.8000    0.8000    1.8000    3.0000  0]';
-
-    if r == 1
+        Qast = datasample(QastPos,n)';
         Pl = datasample(PlPos,n)';
         Ql = datasample(QlPos,n)';
+    else
+        Past = PastPos;
+        Qast = QastPos;
+        Pl = PlPos;
+        Ql = QlPos;
     end
+    
+    
+    % per unit
+    Past = Past/Pbase;
+    Qast = Qast/Qbase;
+%     Past = ones(n,1);
+
+    % Choosing appropriate values for the controllers (from Simpson-Porco (2015))
+    if r == 1
+        tau = 10*ones(1,n);
+        etap = 1./Past/100;
+    else
+        tau = 10*ones(1,n);
+        etap = [2.5e-3 5e-3 5e-3 2.5e-3];
+        etaq = [1.5e-3 3e-3 3e-3 1.5e-3];
+    end
+    
+    k = 1.7 * ones(1,n);
+    kappai = ones(1,n);
 
     % per unit
     Pl = Pl/Pbase*1;
@@ -133,17 +141,28 @@ for n = N
     % The voltages are assumed to remain constant at the rated voltage of the
     % distribution line
     % absolute voltage
-    voltage = 415;
+    voltage = 325.3;
     % per unit
     voltage = voltage/Vbase; %find_voltages(B,Past,Pl,1,n);
     VV = voltage*voltage*ones(n,n);     % alpha
 
-    %%% Choose the initial conditions
-    xi0 = 0*rand(n,1); % secondary control variable
-
+    %% Choose the initial conditions
     if r == 1
         dw = [-1; (rand(n-1,1)-ones(n-1,1))];
-        save inverters Past bb dw Pl
+    end
+    
+    xi0 = 0*rand(n,1); % secondary control variable (freq)
+    zeta0 = 0*rand(n,1); % secondary control variable (volt)
+    if strcmp(vars,'incremental')
+        theta0 = ones(n-1,1);
+        omega0 = rand(n,1);
+        v0 = rand(n,1);
+        initial_state = [theta0, omega0, v0, xi0, zeta0];
+    else
+        theta0 = ones(n-1,1);
+        omega0 = wref + wd;
+        v0 = voltage*rand(n,1);
+        initial_state = [delta0, omega0, v0, xi0, zeta0];
     end
     
     % Defining system struct
@@ -163,20 +182,28 @@ for n = N
         % Communication control in the same string
         if control == "DSS"
             ctrl.gii = ctrl.gip1 + ctrl.gim1;
-            Lambda = diag([ctrl.gip1 ; ctrl.gii*ones(n-2,1); ctrl.gim1])...
+            ctrl.hii = ctrl.hip1 + ctrl.him1;
+            G = diag([ctrl.gip1 ; ctrl.gii*ones(n-2,1); ctrl.gim1])...
                 - ctrl.gip1*diag([1,ones(n-2,1)'],1)...
                 - ctrl.gim1*diag([ones(n-2,1)',1],-1);
+            H = diag([ctrl.hip1 ; ctrl.hii*ones(n-2,1); ctrl.him1])...
+                - ctrl.hip1*diag([1,ones(n-2,1)'],1)...
+                - ctrl.him1*diag([ones(n-2,1)',1],-1);
+            
         else
-            Lambda = diag([.5 ; ones(n-2,1);.5])...
+            G = diag([.5 ; ones(n-2,1);.5])...
+                - 0.5*diag([1,ones(n-2,1)'],1)...
+                - 0.5*diag([ones(n-2,1)',1],-1);
+            H = diag([.5 ; ones(n-2,1);.5])...
                 - 0.5*diag([1,ones(n-2,1)'],1)...
                 - 0.5*diag([ones(n-2,1)',1],-1);
         end
-        sys.Lambda = Lambda;
+        sys.G = G;
+        sys.H = H;
         
         if strcmp(vars,'incremental')
-            initial_state = [ones(n-1,1);1*rand(n,1);xi0];  %% for incremental
             if control == "DSS"
-                [time,y] = ode23s(@inverters_theta_dss,[0 sys.simtime], ...
+                [time,y] = ode45(@inverters_theta_dss,[0 sys.simtime], ...
                     initial_state, opts, sys, ctrl);
                 % outputing the controller
                 u_final = zeros(length(time),n);
@@ -186,18 +213,17 @@ for n = N
                     u_final(ttt,:) = u;
                 end
             else
-                [time,y] = ode23s(@inverters_theta,[0 sys.simtime],...
-                    initial_state,opts,sys,tau,eta,k);
+                [time,y] = ode45(@inverters_theta,[0 sys.simtime],...
+                    initial_state,opts,sys,tau,etap,k);
                 % outputing the controller
                 u_final = zeros(length(time),n);
                 for tt = time'
                     ttt = find(ismember(time,tt));
-                    [dx, u] = inverters_theta(tt,y(ttt,:)',sys,tau,eta,k);
+                    [dx, u] = inverters_theta(tt,y(ttt,:)',sys,tau,etap,k);
                     u_final(ttt,:) = u;
                 end
             end
         else 
-            initial_state = [1*ones(n,1);wref+dw;xi0];           %% for absolute
             if control == "DSS"
                 [time,y] = ode45(@inverters_dss,[0 sys.simtime], ...
                     initial_state, opts,sys,ctrl);
@@ -210,12 +236,12 @@ for n = N
                 end
             else
                 [time,y] = ode45(@inverters,[0 sys.simtime],...
-                    initial_state,opts,sys,tau,eta,k);
+                    initial_state,opts,sys,tau,etap,k);
                 % outputing the controller
                 u_final = zeros(length(time),n);
                 for tt = time'
                     ttt = find(ismember(time,tt));
-                    [dx, u] = inverters(tt,y(ttt,:)',sys,tau,eta,k);
+                    [dx, u] = inverters(tt,y(ttt,:)',sys,tau,etap,k);
                     u_final(ttt,:) = u;
                 end
             end
@@ -462,7 +488,7 @@ FF=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1); -B(n,n-1)*sin(state(n-1))]
 
 dydt = A * state...
     + [zeros(n-1,1);Ti*(N*(Pll));zeros(n,1)] ... % disturbance (Gill: ci)
-    + [zeros(n-1,1);Ti*N*FF;zeros(n,1)]; % non-linear term  
+    + [zeros(n-1,1);Ti*N*FF;zeros(n,1)]; % non-linear term
 
 Au = [zeros(n,n-1), -Ti, Ti];
 
@@ -473,49 +499,70 @@ function [dydt, u, P, Q] = inverters_theta_dss(t, state, sys, ctrl)
 % Implements the inverter system in the incremental variables as per
 % Schiffer et al's transformations, with extra controller gains to satisfy
 % Monteil et al's DSS conditions. 
+[tau, np, nq, kxi, kzeta] = ctrl.ctrlgain{:};
+[l, m, o, x, y] = ctrl.ctrlxtra{:};
 
 n = sys.n;
-wref = sys.wref;
 simtime = sys.simtime;
 
 B = sys.B;
-Lambda = sys.Lambda;
+G = sys.G;
+H = sys.H;
 
 Pl = sys.Pl;
+Ql = sys.Ql;
+
 PlDist = sys.PlDist;
 
 I = eye(n);
-O = zeros(n,n);
+Os = zeros(n,n);
 Ii = ones(n,1);
-V = [eye(n-1) -ones(n-1,1)];
+R = [eye(n-1) -ones(n-1,1)];
 
-Ti = diag(ones(1,n)./ctrl.tau);
-N = diag(ctrl.etai);
-Ki = 1*diag(ones(1,n)./ctrl.ki);
+T = diag(ones(1,n)./tau);
+Np = diag(ones(1,n)*np);
+Nq = diag(ones(1,n)*nq);
+Kxi = diag(ones(1,n)./kxi);
+Kzeta = diag(ones(1,n)./kzeta);
+L = diag(ones(1,n)*l);
+M = diag(ones(1,n)*m);
+O = diag(ones(1,n)*o);
+X = diag(ones(1,n)*x);
+Y = diag(ones(1,n)*y);
 
+% constant disturbance in Pl 
 Pldist = 0;
-if t>150 % constant disturbance in Pl 
+if t>150 
     Pldist = PlDist;
 end
 Pll = Pl(1:end-1) + Pldist;
 % Pll(end+1) = 0;
 Pll(end+1) = Pl(end) + Pldist;
 
-A = [zeros(n-1,n-1), V, 0*V;
-    zeros(n,n-1), -Ti*ctrl.Oi, Ti*ctrl.Zi;
-    zeros(n,n-1), -Ki*ctrl.Li, -Ki*Lambda];
+A = [
+    zeros(n-1,n-1) R      0*R      0*R   0*R;
+    zeros(n,n-1)  -T      Os       T*Y   Os;
+    zeros(n,n-1)   Os    -T*O      Os    T*M;
+    zeros(n,n-1)  -Kxi*X  Os      -Kxi*G Os;
+    zeros(n,n-1)   Os    -Kzeta*L  Os   -Kzeta*H;    
+    ];
 
+% Delta below is theta_i - theta_i+1
 Delta = repmat(state(1:n-1),1,n-1) - repmat(state(1:n-1)',n-1,1);
-FF=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1);
+
+FFp=[(-B(1:n-1,1:n-1).*sin(Delta(1:n-1,:)))*Ii(1:n-1);
     -B(n,n-1)*sin(state(n-1))];
+FFq=[(-B(1:n-1,1:n-1).*cos(Delta(1:n-1,:)))*Ii(1:n-1);
+    -B(n,n-1)*cos(state(n-1))];
 
 dydt = A * state...
-    + [zeros(n-1,1); Ti*(N*(Pll)); zeros(n,1)] ... % disturbance
-    + [zeros(n-1,1); Ti*N*FF; Ki*ctrl.Yi*FF];
-       
+    + [zeros(n-1,1); Ti*(N*(Pll)); Ti*(Nq*Ql); zeros(n,1); zeros(n,1)] ... % disturbance
+    + [zeros(n-1,1); Ti*N*FFp; Ki*ctrl.Yi*FFp];
+
+% HERE
 Au = [zeros(n,n-1), -Ti*ctrl.Oi, Ti*ctrl.Zi];
 
-u = Au*state + Ti*N*FF;
+u = Au*state + Ti*N*FFp;
 
 % P = Pll + V^2*sin(Delta);
 % Q = Qll + V^2*cos(Delta);
