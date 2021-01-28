@@ -13,11 +13,12 @@ gim1 = comm(1);
 gip1 = comm(2);
 him1 = comm(3);
 hip1 = comm(4);
-B = syspar.B;
+Bij = syspar.Bij;
+Bii = syspar.Bii;
 
 Jii_U = [0              1       0       0               0;
     0                   -1/tau  0       y/tau           0;
-    nq/tau*2*B*Vbar^2   0       -o/tau  0               m/tau;
+    0                   0       -o/tau  0               m/tau;
     0                   -x/kxi  0       -(gip1+gim1)/kxi 0;
     0                   0       -l/kzeta 0          -(hip1+him1)/kzeta];
 Jii_U_tilde = Gamma*Jii_U/Gamma;
