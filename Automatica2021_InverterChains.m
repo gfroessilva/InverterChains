@@ -1,13 +1,19 @@
 %% Simpson-Porco 2015
+home
 %% Parameters
 % Microgrid's electrical parameters
 clearvars -except sol f
 rng(1);
 
-sample = 1; % if 1, creates length(N) chains with N inverters
+SStest = 1; % if 1, creates length(N) chains with N inverters
+savefigs = 0;
+voltctrl = 0;
+printfigs = 1;
+calcnorms = 1;
 
-if sample == 1
-    N = [4 6 8]; % number of nodes in each inverter chain
+if SStest == 1
+%     N = 4:32:100; % number of nodes in each inverter chain
+    N = 4:2:16; % number of nodes in each inverter chain
 else
     N = 4;
 end
@@ -17,7 +23,6 @@ controllers = ["C2"];
 controllers = ["C1" "C2"];
 % C1 - DSS Controller (Proposed)
 % C2 - Simpson2015 (V-Q 'smart' tuning)
-
 
 %%%%%%%%%%%%%%%%%%%%%%% Microgrid topology %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Inverter parameters % (for a 4 inverters chain)
@@ -31,20 +36,22 @@ conf.Qrat = .8;%[.8 .8 .8 .8]';   % Rated (max) Reactive Power [kVAr]
 % Line impedances %
 conf.R = [.8 .4 .7]';   % Resistance [Ohm]
 conf.L = [3.6 1.8 1.9]'*1e-3; % Reactance  [H]
+% conf.R = [.8 .8 .8]';   % Resistance [Ohm]
+% conf.L = [3.6 3.6 3.6]'*1e-3; % Reactance  [H]
 
 % Load impedances %
 conf.Rl = [1 1 1 1]'*0;       % Resistance [Ohm]
 conf.Ll = [1 1 1 1]'*0e-3;     % Reactance  [H] ????
 
-conf.loadconfig = [1 1 0 1]'; % ??????
+conf.loadconfig = [1 1 1 1]'; % ??????
 conf.invRating = ones(4,1);
-conf.invRating(conf.loadconfig==0) = .5;
+conf.invRating(conf.loadconfig==0) = 0.5;
 conf.invRating(conf.loadconfig==1) = 1;
 
-conf.loaddist = (1 - .1*rand(4,1));
+conf.loaddist = (1 - .0*rand(4,1));
 
-conf.Past = conf.invRating.*conf.Prat*.7e3;  % Load Active Power   [kW]
-conf.Qast = conf.invRating.*conf.Qrat*.45e3;  % Load Reactive Power [kVAr]
+conf.Past = conf.invRating.*conf.Prat*(.9-.0*rand)*1e3;  % Load Active Power   [kW]
+conf.Qast = conf.invRating.*conf.Qrat*(.8-.0*rand)*1e3;  % Load Reactive Power [kVAr]
 
 % Operation set points
 conf.omegaast = 50*2*pi; % 50Hz
@@ -82,7 +89,12 @@ if exist('sol','var')
     optctrl = sol;
 elseif ~exist('ctrl','var')
     try 
-        Optimisation_SP;
+        
+        if voltctrl
+            Optimisation_SP;
+        else
+            Optimisation_Vcte;
+        end
     catch exp
         error(exp.message);
     end
@@ -94,20 +106,24 @@ elseif ~exist('ctrl','var')
 end
     
 %% loop
+    disp('Simulating...')
 for n = N
     sys.n = n;
+    disp(n)
     
     % Line parameters
-    sys.R = [sys.R; datasample(conf.R,sys.n-length(sys.R)-1)];
-    sys.L = [sys.L; datasample(conf.L,sys.n-length(sys.L)-1)];
+    zselect = datasample(1:3,1);
+    sys.R = [sys.R; repmat(conf.R(zselect),sys.n-length(sys.R)-1,1)];
+    sys.L = [sys.L; repmat(conf.L(zselect),sys.n-length(sys.L)-1,1)];
     % Loads (not used, Pl and Ql instead) ?
     sys.Rl = [sys.Rl; datasample(conf.Rl,sys.n-length(sys.Rl))];
     sys.Ll = [sys.Ll; datasample(conf.Ll,sys.n-length(sys.Ll))];
     
     % Load configuration
     sys.loadconfig = [sys.loadconfig; ...
-        datasample(conf.loadconfig,sys.n-length(sys.loadconfig))];
-    sys.invRating(sys.loadconfig==0) = .5;
+%         repmat(datasample(conf.loadconfig,1),sys.n-length(sys.loadconfig),1)];
+        repmat(1,sys.n-length(sys.loadconfig),1)];
+    sys.invRating(sys.loadconfig==0) = 0.5;
     sys.invRating(sys.loadconfig==1) = 1;
     
     % Rated Powers
@@ -121,10 +137,10 @@ for n = N
     % Power set points
     sys.Past = [sys.Past; ...
         sys.invRating(length(sys.Past)+1:end).* ...
-        datasample(conf.Prat*.7e3,sys.n-length(sys.Past))];
+        datasample(conf.Prat*.9e3,sys.n-length(sys.Past))];
     sys.Qast = [sys.Qast; ...
         sys.invRating(length(sys.Qast)+1:end).* ...
-        datasample(conf.Qrat*.45e3,sys.n-length(sys.Qast))];
+        datasample(conf.Qrat*.8e3,sys.n-length(sys.Qast))];
     
     % Load demanded Powers
     sys.Pl = sys.loadconfig.* sys.Past;
@@ -149,34 +165,57 @@ for n = N
     sys.Gii = diag(sum(sys.Gij,1)) + real(sys.Yl);
     sys.Bii = diag(sum(sys.Bij,1)) + imag(sys.Yl);
     %% %%%%%%%%%%%%%%%%%%% Simulation Parameters %%%%%%%%%%%%%%%%%%%%%%%%%%
-    sys.simtime = 150; % [s]
+    sys.simtime = 2000; % [s]
     % flags
     flag.PriF = 1;
-    flag.PriV = 1;
+    flag.PriV = voltctrl;
     flag.SecOn = 1;
     flag.SecOnT = 0;
-    flag.LoadOffOn = 1;
-    flag.LoadOffT = 50;
-    flag.LoadOnT = 100;
-    opts = odeset('RelTol',1e-5,'AbsTol',1e-5);
+    flag.Dist = 1;
+    flag.DistOnT = 100;
+    flag.DistOffT = 1000;
+    opts = odeset('RelTol',1e-9,'AbsTol',1e-9);
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %% %%%%%%%%%%%%%%%%%%%%%% Controllers %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     for control = controllers
-        sys.Link = diag(ones(1,sys.n-1),1) + diag(ones(1,sys.n-1),-1) + ...
-                diag(1,sys.n-1) + diag(1,-sys.n+1);
+%         sys.Link = diag(ones(1,sys.n-1),1) + diag(ones(1,sys.n-1),-1) + ...
+%                 diag(1,sys.n-1) + diag(1,-sys.n+1);
         if control == "C1"            
             ctrl = optctrl;
+            if ~voltctrl
+                ctrl.ctrlgain(1) = optctrl.tau;     % tau
+                ctrl.ctrlgain(2) = optctrl.etai;    % etaP
+                ctrl.ctrlgain(3) = 1;               % etaQ
+                ctrl.ctrlgain(4) = optctrl.ki;      % kxi
+                ctrl.ctrlgain(5) = 1;               % kzeta
+                
+                ctrl.ctrlxtra(1) = 1;%optctrl.Oo;
+                ctrl.ctrlxtra(2) = 1;%optctrl.Oxi;
+                ctrl.ctrlxtra(3) = 1;
+                ctrl.ctrlxtra(4) = 0;%optctrl.Xid;
+                ctrl.ctrlxtra(5) = 1;%optctrl.Xio;
+                ctrl.ctrlxtra(6) = 1;
+                
+                gim1 = optctrl.gim1;
+                gip1 = optctrl.gip1;                
+                him1 = 0;                
+                hip1 = 0;
+            else                
+                gim1 = ctrl.comm(1);
+                gip1 = ctrl.comm(2);
+                him1 = ctrl.comm(3);
+                hip1 = ctrl.comm(4);
+            end
             % Communication
-            gim1 = ctrl.comm(1);
-            gip1 = ctrl.comm(2);
-            him1 = ctrl.comm(3);
-            hip1 = ctrl.comm(4);
             
             gii = gip1 + gim1;
             hii = hip1 + him1;
-            ctrl.G = diag([gip1 ; gii*ones(n-2,1); gim1])...
+            ctrl.G = (diag([gip1 ; gii*ones(n-2,1); gim1]) ...
                 - gip1*diag([1,ones(n-2,1)'],1)...
-                - gim1*diag([ones(n-2,1)',1],-1);
+                - gim1*diag([ones(n-2,1)',1],-1));...
+%                 - gim1.*diag(1,n-1)...  % two last lines implement ring connection if first line is multiplied by zero
+%                 - gip1.*diag(1,-n+1));
+%             ctrl.G = ctrl.G - diag(sum(ctrl.G,2));
             ctrl.H = diag([hip1 ; hii*ones(n-2,1); him1])...
                 - hip1*diag([1,ones(n-2,1)'],1)...
                 - him1*diag([ones(n-2,1)',1],-1);            
@@ -185,20 +224,27 @@ for n = N
             % Communication
             % line
 %             sys.Link = diag(ones(1,sys.n-1),1) + diag(ones(1,sys.n-1),-1);
+            
+            sys.Link = 1*(diag([1 ; 2*ones(n-2,1); 1]) ...
+                - 1*diag([1,ones(n-2,1)'],1)...
+                - 1*diag([ones(n-2,1)',1],-1));
+            
+            
             % ring
-            sys.Link = diag(ones(1,sys.n-1),1) + diag(ones(1,sys.n-1),-1) + ...
-                diag(1,sys.n-1) + diag(1,-sys.n+1);
-            %%% Primary Controller %%%
-            ctrl.etaP = 1./sys.Prat./300;
-            ctrl.etaP = 2.5e-3*ones(sys.n,1);
-            ctrl.etaQ = 1./sys.Qrat./800;
-            ctrl.etaQ = 2.5e-3*ones(sys.n,1);
+%              sys.Link = diag(ones(1,sys.n-1),1) + diag(ones(1,sys.n-1),-1) + ...
+%                  diag(1,sys.n-1) + diag(1,-sys.n+1);
+%              sys.Link = -sys.Link + diag(sum(sys.Link,2));
+            %% Primary Freq Controller %%%
+            ctrl.etaP = 1./sys.Past*4;
+%             ctrl.etaP = 6e-4*ones(sys.n,1);
+            ctrl.etaQ = 1./sys.Qast./800;
+%             ctrl.etaQ = 2.5e-3*ones(sys.n,1);
 
-            %%% Secondary Controller %%%
-            ctrl.k = 1.7.*ones(1,sys.n); % Int Frequency gain
+            %% Secondary Freq Controller %%%
+            ctrl.k = 1.5.*ones(1,sys.n); % Int Frequency gain
             ctrl.kappa = 1.*ones(1,sys.n); % Int Voltage gain
 
-            % Simpson2015's Study 1.
+            %% Simpson2015's Study 1. - Voltage control
             study = '1.c';
             switch study
                 case '1.a' % reactive power sharing only
@@ -212,7 +258,7 @@ for n = N
                     ctrl.h = 18.0;
                 case '1.d' % 'smart' tuning (leader-follower)
                     ctrl.Beta = zeros(n,1);
-                    ctrl.Beta(2) = 4;       % leader
+                    ctrl.Beta(2) = 10;       % leader
                     ctrl.h = 100;
                     sys.Link(2,:) = zeros(1,n);
                 otherwise
@@ -225,7 +271,7 @@ for n = N
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         %% %% Initial Conditions
         delta0 = zeros(n,1);
-        omega0 = sys.omegaast*ones(n,1); + [1; zeros(n-1,1)];
+        omega0 = sys.omegaast*ones(n,1) - 0*[.15; .1*rand(n-1,1)];
         V0 = (sys.Vast)*ones(n,1);% - 1 + 2*rand(n,1);
         xi0 = zeros(n,1);
         zeta0 = zeros(n,1);
@@ -245,79 +291,67 @@ for n = N
         P_final = zeros(length(time),sys.n);
         Q_final = zeros(length(time),sys.n);
         for tt = time'
-            ttt = find(ismember(time,tt));
-            [dx, yy] = microgrid(tt,y(ttt,:)', sys, ctrl, flag);
+            idx_t = find(ismember(time,tt));
+            [dx, yy] = microgrid(tt,y(idx_t,:)', sys, ctrl, flag);
             %     u_final(ttt,:) = yy.u;
-            P_final(ttt,:) = yy.P;
-            Q_final(ttt,:) = yy.Q;
+            P_final(idx_t,:) = yy.P;
+            Q_final(idx_t,:) = yy.Q;
         end
         %%%%%%%%%%%%%%%%%%%%%%%%%%%
         
-        %         return
-        
-        %% % --- Calculating Norms --- %%%
-        l2norma = zeros(length(y),n);
-        z = reshape(y, length(y),n,(size(y,2))/n);
-        for idx_t = time' % every time step
-            tt = find(ismember(time,idx_t));
-            for idx_a = 1:n % every agent
-                ztemp = z(tt,idx_a,:);
-                ztemp = reshape(ztemp,1,(size(y,2))/n);
-                
-                % angle error
-%                 if wrap
-                ztemp(1) = 0.*wrapToPi(ztemp(1));
-                ztemp(2) = ztemp(2) - conf.omegaast;
-                ztemp(3) = ztemp(3) - conf.Vast;
-%                 end
-                
-                % l2 norm for each agent
-                l2norma(tt,idx_a) = norm(ztemp);
-            end
-        end
-        % max l2 norm among agents
-        l2normt = max(l2norma,[],2);                
-        % supreme max l2 
-        [linfnorm, ~] = max(max(l2norma));
-        
-        norms.l2 = l2normt;
-        norms.linf = linfnorm;
-        %%% --- ----------------- --- %%%
-        
-        % y = y(find(time>10):end,:);
-        % P_final = P_final(find(time>10):end,:);
-        % Q_final = Q_final(find(time>10):end,:);
-        % time = time(time>10);
-                
         % - Populating result structure - %
-        invChain = struct(...
-            'y',y,...
-            'P',P_final,...
-            'Q',Q_final,...
-            'norms',norms,...
-            'time',time,...
-            'sys',sys,...
-            'ctrl',ctrl,...
-            'colvec', colormap(hsv(n+1)));
+        invChain.y = y;
+        invChain.P = P_final;
+        invChain.Q = Q_final;
+        invChain.norms=[];
+        invChain.time = time;
+        invChain.sys = sys;
+        invChain.ctrl = ctrl;
+        invChain.colvec = colormap(hsv(n+1));
         
-        invChains(ii) = invChain;
+        invChains(ii) = invChain;        
+        clear invChain
+        
+%         clear y P_final Q_final norms time ctrl colormap
+        
         ii = ii + 1;
     end
 end
 
 %% Plotting
-Nplot = 2;
+disp('Plotting...')
+Nplot = 4;
 y = invChains(Nplot).y;
 n = invChains(Nplot).sys.n;
 time = invChains(Nplot).time;
 P_final = invChains(Nplot).P;
 Q_final = invChains(Nplot).Q;
+colvect = invChains(Nplot).colvec;
 
 delta = y(:,1:n);
 omega = y(:,n+1:2*n);
 V = y(:,2*n+1:3*n);
 xi = y(:,3*n+1:4*n);
 zeta = y(:,4*n+1:5*n);
+
+% if flag.Dist && time > flag.DistOnT && time < flag.DistOffT
+%     idx_DistOn = find(ismember(time,flag.DistOnT))
+
+[~, idx_DistOn] = min(abs(time - flag.DistOnT));
+[~, idx_DistOff] = min(abs(time - flag.DistOffT));
+
+% delta_s = (delta(idx_DistOff-1) - conf.omegaast*time); % with dist
+% % ( .* time < flag.DistOffT)
+% 
+% delta_s(time > flag.DistOnT) = (delta(idx_DistOff-1) - conf.omegaast*time); % without dist
+% delta_s(time < flag.DistOffT) = (delta(idx_DistOff-1) - conf.omegaast*time); % without dist
+delta_s = 0;
+% else
+%     delta_s = (delta(end) - conf.omegaast*time(end));
+% end
+% figure
+% plot(time,delta_s)
+% return
 
 set(groot,'DefaultAxesFontSize', 16)
 set(groot,'DefaultAxesLineWidth',2)
@@ -326,59 +360,130 @@ set(groot,'DefaultLineLinewidth',2.5)
 set(groot,'DefaultLegendInterpreter','latex')
 set(groot,'DefaultAxesTickLabelInterpreter','latex')
 set(groot,'DefaultTextInterpreter','latex')
+set(groot,'DefaultAxesColorOrder',colvect)
+set(groot,'DefaultAxesXLim',[0 60])
+xlimm = [100 180];
+% xlimm = [-Inf Inf];
 
-% figure(1)
-% plot(time,wrapToPi(delta));
-% plot(time,(delta));
-% legend('DG1','DG2','DG3','DG4','location','best');
-% title('Volt angle $\delta$')
-% xlabel('$t$ [s]')
+figure(1); clf;
+hold on
+% for idx = 1:n    
+%     if idx~=n
+%         plot(time,delta(:,idx)-delta(:,idx+1)); 
+    plot(time,delta - (delta_s + conf.omegaast*time)); 
+%     else
+%         plot(time,delta(:,idx))
+%     end
+% end
+xlabel('$t$ [s]')
+ylabel('$\delta_{i} - \delta^*$')
+% axis([xlimm -Inf Inf])
 
-figure(2);
+figure(2); clf;
 plot(time,omega);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Frequency $\omega$')
-xlabel('$t$ [s]')
+% legend('DG1','DG2','DG3','DG4','location','best');
+xlabel('Time [s]')
+ylabel('Frequency [Hz]')
 % axis([-Inf Inf 310 320])
+axis([xlimm -Inf Inf])
 
-figure(3)
-plot(time,V);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Voltage $V$')
-xlabel('$t$ [s]')
-% axis([-Inf Inf 100 400])
-
-figure(4)
+figure(3); clf;
 plot(time,xi);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Secondary freq var $\xi$')
-xlabel('$t$ [s]')
+% legend('DG1','DG2','DG3','DG4','location','best');
+% title('Secondary freq var $\xi$')
+xlabel('Time [s]')
+ylabel('$\xi$')
+axis([xlimm -Inf Inf])
 
-figure(5)
-plot(time,zeta);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Secondary volt var $\zeta$')
-xlabel('$t$ [s]')
+% figure(3)
+% plot(time,V);
+% % legend('DG1','DG2','DG3','DG4','location','best');
+% % title('Voltage $V$')
+% xlabel('Time [s]')
+% ylabel('Voltage [V]')
+% % axis([-Inf Inf 100 400])
 
-figure(6)
+% figure(4)
+% plot(time,zeta);
+% % legend('DG1','DG2','DG3','DG4','location','best');
+% % title('Secondary volt var $\zeta$')
+% xlabel('Time [s]')
+% ylabel('$\zeta$')
+
+figure(4); clf;
 plot(time,P_final);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Active Power $P$')
-xlabel('$t$ [s]')
+% legend('DG1','DG2','DG3','DG4','location','best');
+% title('Active Power $P$')
+xlabel('Time [s]')
+ylabel('$P$ [W]')
+axis([xlimm -Inf Inf])
 
-figure(7)
-plot(time,Q_final);
-legend('DG1','DG2','DG3','DG4','location','best');
-title('Reactive Power $Q$')
-xlabel('$t$ [s]')
+% figure(6)
+% plot(time,Q_final);
+% % legend('DG1','DG2','DG3','DG4','location','best');
+% % title('Reactive Power $Q$')
+% xlabel('Time [s]')
+% ylabel('$Q$ [VAr]')
 
 % if ~exist('f','var')
-    distFig('screen','east')
+    
 % end
 
 
+%% % --- Calculating Norms --- %%%
+if calcnorms == 1
+    disp('Calculating norms...')
+for idx = 1:length(invChains)
+    disp(idx)
+    n = invChains(idx).sys.n;
+    y = invChains(idx).y;    
+    delta = y(:,1:n);
+    xi = y(:,3*n+1:4*n);
+    time = invChains(idx).time;
+    l2norma = zeros(size(y,1),n);                   % ok
+    z = reshape(y, size(y,1),n,(size(y,2))/n);      % ok
+    for tt = time' % every time step
+        idx_t = find(ismember(time,tt));
+        for idx_a = 1:n % every agent
+            ztemp = z(idx_t,idx_a,:);                  % ok
+            ztemp = reshape(ztemp,1,(size(y,2))/n);
+
+            ztemp(2) = ztemp(2) - conf.omegaast;
+            ztemp(3) = ztemp(3) - conf.Vast;
+            
+            if flag.Dist && tt > flag.DistOnT && tt < flag.DistOffT % disturbance on?                
+%                 [~, idx_DistOn] = min(abs(time - flag.DistOnT));
+                [~, idx_DistOff] = min(abs(time - flag.DistOffT));
+                ztemp(4) = ztemp(4) - xi(idx_DistOff-1,idx_a); % xi - xi* (during dist)
+                ztemp(1) = ztemp(1) - conf.omegaast*tt - (delta(idx_DistOff-1,idx_a) - conf.omegaast*time(idx_DistOff-1));
+            else
+                ztemp(4) = ztemp(4) - xi(end,idx_a);
+                ztemp(1) = ztemp(1) - conf.omegaast*tt - (delta(end,idx_a) - conf.omegaast*time(end));
+            end
+            
+            ztemp(5) = 0;
+            % l2 norm for each agent
+            l2norma(idx_t,idx_a) = norm(ztemp);
+        end
+    end
+    % max l2 norm among agents
+    l2normt = max(l2norma,[],2);                
+    % supreme max l2 
+    [linfnorm, ~] = max(max(l2norma));
+
+    invChains(idx).norms.l2 = l2normt;
+    invChains(idx).norms.linf = linfnorm;
+%         norms=0;
+    %%% --- ----------------- --- %%%
+
+    % y = y(find(time>10):end,:);
+    % P_final = P_final(find(time>10):end,:);
+    % Q_final = Q_final(find(time>10):end,:);
+    % time = time(time>10);
+end
+end
 %%
-f = figure(8);
+f = figure(5);
 clf
 Ns = length(N)*length(controllers);
 % leg = string(1:Ns);
@@ -390,14 +495,46 @@ for x = 1:Ns
 %         leg(x) = strcat("C2 N=",string(mod(x,length(controllers))));
         colvec = [0 1 0];
     end
-    
-    plot(invChains(x).time,invChains(x).norms.l2,'color',colvec.*x/Ns)    
-    leg(x) = strcat(invChains(x).ctrl.control," N=",...
-        num2str(invChains(x).sys.n));
+    if invChains(x).ctrl.control == "C1"
+        plot(invChains(x).time,invChains(x).norms.l2,'-','color',colvec.*x/Ns)    
+    elseif invChains(x).ctrl.control == "C2"
+        plot(invChains(x).time,invChains(x).norms.l2,'--','color',colvec.*x/Ns)    
+    end
+    leg(x) = strcat("N=",num2str(invChains(x).sys.n)," ",...
+        invChains(x).ctrl.control);
     hold on
 end
-legend(leg)
+
+xlabel('Time [s]')
+ylabel('$\sup_i\left|x_i-x_i^*\right|_2$')
+% legend(leg)
+
 %%
+norms_ours_v = [invChains(1:2:end).norms];
+norms_naiv_v = [invChains(2:2:end).norms];
+figure(6); clf
+stem(N-.1,[norms_ours_v.linf],'--*','r','linewidth',2); hold on
+stem(N+.1,[norms_naiv_v.linf],'--*','g','linewidth',2)
+legend('DSS Controller','Standard Controller','location','best')
+xlabel('Number of agents $n$')
+ylabel('$\sup_i\left|\left|x_i-x_i^*\right|\right|_\infty$')
+xticks(N)
+
+%% Printing/Saving figures
+% clc
+if savefigs == 1
+    
+    figs = findobj(0, 'type', 'figure');
+    figs = figs(end:-1:1);
+    datetime_char = char(datetime('now','format','yyyyMMMdd_hhmm'));
+    for k=1:length(figs)
+        % print each figure in figs to a separate .eps file
+        print(figs(k), '-depsc', sprintf([datetime_char '_%d.eps'], k))
+        %TODO SAVE .fig
+    end
+end
+%%
+% distFig('screen','east')
 %% ODE Func
 function [dydt, y] = microgrid(t, state, sys, ctrl, flag)
 n = sys.n;
@@ -434,29 +571,29 @@ V = state(2*n+1:3*n);
 VV = repmat(V,1,n).*repmat(V',n,1);
 
 delta_ij = repmat(delta,1,n) - repmat(delta',n,1);
-% delta_ij(delta_ij<0.001)=0;
-
 
 if t>flag.SecOnT
     flag.Sec = 1*flag.SecOn;
 else
     flag.Sec = 0;
 end
-if t>flag.LoadOffT && flag.LoadOffOn && t<flag.LoadOnT
-    Qlr(1) = 0; Plr(1) = 0;
-    Ql(1) = 0; Pl(1) = 0;
-    %     VV = VV;
-end
 
 % Powers used in controller
 P = (abs(Bij).*sin(delta_ij)).*VV*Iv;
 Q = (VV.*abs(Bii) - (abs(Bij).*cos(delta_ij)).*VV)*Iv;
 
+if t>flag.DistOnT && flag.Dist && t<flag.DistOffT
+    Plr(1) = Plr(1)*.8;
+    dist = zeros(n,1);
+else
+    dist = zeros(n,1);
+end
+
 % Powers output "measurement"
 y.P = P;
 y.Q = Q;
-y.P = Plr + (abs(Bij).*sin(delta_ij)).*VV*Iv;
-y.Q = Qlr + (VV.*abs(Bii) - abs(Bij).*cos(delta_ij).*VV)*Iv;
+y.P = Plr + P;
+y.Q = Qlr + Q;
 
 % Y = imag(Yl) + Bij;
 % y.Q = diag(V)*Y*V;
@@ -466,75 +603,81 @@ QDelta = repmat(y.Q./(Qast),1,n) - repmat((y.Q./(Qast))',n,1);
 
 ref = [omegaast; Vast; Past; Qast];
 
-
-if ctrl.control == "C1" %TODO DSS Controller      
-    tau = ctrl.ctrlgain(1);
-    np = ctrl.ctrlgain(2);
-    nq = ctrl.ctrlgain(3);
-    kxi = ctrl.ctrlgain(4);
-    kzeta = ctrl.ctrlgain(5);
-%     tau = 1;
-%     np = 2.5e-3;
-%     nq = 2.5e-3;
-%     kxi = 1.7;    
-%     kzeta = 1;
+if ctrl.control == "C1" 
+    tau =   ctrl.ctrlgain(1);  % + makes the system faster
+    np =    ctrl.ctrlgain(2);  % + improves power sharing
+    nq =    ctrl.ctrlgain(3);
+    kxi =   ctrl.ctrlgain(4);  % + makes system slower
+    kzeta = ctrl.ctrlgain(5);    
+    
+    Oo      = diag(ones(1,n).*ctrl.ctrlxtra(1));    % omega -> omega
+    Oxi     = diag(ones(1,n).*ctrl.ctrlxtra(2));    % omega -> xi
+    Vzeta   = diag(ones(1,n).*ctrl.ctrlxtra(3));    % V -> zeta    
+    Xid     = diag(ones(1,n).*ctrl.ctrlxtra(4));    % xi -> delta
+    Xio     = diag(ones(1,n).*ctrl.ctrlxtra(5));    % xi -> omega
+    ZetaV   = diag(ones(1,n).*ctrl.ctrlxtra(6));    % zeta -> V
+    
     
     T = diag(ones(1,n)./tau);    
-    Np = diag(np);
+    Np = diag(ones(1,n)*np);
     Nq = diag(nq);
     K = diag(ones(1,n)./kxi);
     Kappa = diag(ones(1,n)./kzeta);
     
-    L = diag(ones(1,n).*ctrl.ctrlxtra(1));
-    M = diag(ones(1,n).*ctrl.ctrlxtra(2));
-    Og = diag(ones(1,n).*ctrl.ctrlxtra(3));
-    X = diag(ones(1,n).*ctrl.ctrlxtra(4));
-    Y = diag(ones(1,n).*ctrl.ctrlxtra(5));
-    
     A = [...
         O I O O O;                        % deltadot = omega
-        [O -T O flag.Sec*T*Y O]*flag.PriF;  % omegadot = -omega + xi
-        [O O -T*Og O flag.Sec*T*M]*flag.PriV;  % Vdot = -V + zeta
-        [O -K*X O -K*ctrl.G O]*flag.Sec;     % xidot = -omega/K -G*xi/K
-        [O O -Kappa*L O -Kappa*ctrl.H]*flag.Sec]; % zetadot = -Beta*Kappa*V
+        [O -T*Oo O flag.Sec*T*Oxi O]*flag.PriF;  % omegadot = -T*omega + T*Y*xi
+        [O O -T O flag.Sec*T*Vzeta]*flag.PriV;  % Vdot = -T*V + T*M*zeta
+        [O -K*Xio O -K*ctrl.G O]*flag.Sec;     % xidot = -omega/K -G*xi/K
+        [O O -Kappa*ZetaV O -Kappa*ctrl.H]*flag.Sec*flag.PriV]; % zetadot = -Beta*Kappa*V
     
     Aref = [O O O O;
-        [T O T*Np O]*flag.PriF;  % omegadot += omegaast + etaP*Past
-        [O T*Og O T*Nq]*flag.PriV;  % Vdot += Vast + etaQ*Qast
-        [K*X O O O]*flag.Sec;              % xidot += omegast/K
-        [O Kappa*L O O]*flag.Sec];   % zetadot += Vast*Beta/Kappa
+        [T*Oo O T*Np O]*flag.PriF;  % omegadot += T*omegaast + T*etaP*Past
+        [O T O T*Nq]*flag.PriV;  % Vdot += T*Vast + T*etaQ*Qast
+        [K*Xio O O O]*flag.Sec;              % xidot += omegast/K
+        [O Kappa*ZetaV O O]*flag.Sec*flag.PriV];   % zetadot += Vast*Beta/Kappa
     
     PQ = [Ov
         -Np.*T*y.P*flag.PriF          % omegadot -= etaP*P
         -Nq.*T*y.Q*flag.PriV          % Vdot -= etaQ*Q
         Ov
+%         -Np*K*y.P*flag.Sec
         Ov%-H./ctrl.kappa.*QDelta*Iv*flag.Sec;
         ];
+    
+    Dist = [Ov; Np*dist; Ov; Ov; Ov];
 elseif ctrl.control == "C2" 
+    if t>30
+     a = 1;
+    end
+%     
     K = diag(ones(1,n)./ctrl.k);
     Kappa = diag(ones(1,n)./ctrl.kappa);
     A = [...
         O I O O O;                      % deltadot = omega
         [O -I O flag.Sec*I O]*flag.PriF;    % omegadot = -omega + xi
         [O O -I O flag.Sec*I]*flag.PriV;    % Vdot = -V + zeta
-        [O -K O -sys.Link.*K O]*flag.Sec; % xidot = -omega/K -G*xi/K
-        [O O -ctrl.Beta.*Kappa O O]*flag.Sec];   % zetadot = -Beta*Kappa*V
+        [O -K O -sys.Link*K O]*flag.Sec; % xidot = -omega/K -G*xi/K
+        [O O -ctrl.Beta.*Kappa O O]*flag.Sec*flag.PriV];   % zetadot = -Beta*Kappa*V
     
     Aref = [O O O O;
         [I O I.*ctrl.etaP O]*flag.PriF;  % omegadot += omegaast + etaP*Past
         [O I O I.*ctrl.etaQ]*flag.PriV;  % Vdot += Vast + etaQ*Qast
         [K O O O]*flag.Sec;              % xidot += omegast/K
-        [O ctrl.Beta.*Kappa O O]*flag.Sec];    % zetadot += Vast*Beta/Kappa
+        [O ctrl.Beta.*Kappa O O]*flag.Sec*flag.PriV];    % zetadot += Vast*Beta/Kappa
     
     PQ = [Ov
         -ctrl.etaP.*y.P*flag.PriF          % omegadot -= etaP*P
         -ctrl.etaQ.*y.Q*flag.PriV          % Vdot -= etaQ*Q
         Ov
-        -ctrl.H./ctrl.kappa.*QDelta*Iv*flag.Sec;
+        -ctrl.H./ctrl.kappa.*QDelta*Iv*flag.Sec*flag.PriV;
         ];
+        
+    Dist = [Ov; ctrl.etaP.*dist; Ov; Ov; Ov];
 end
 
 dydt = A*state + ... % linear dynamics
     Aref*ref + ...     % ref (ast)
-    PQ;           % nonlinear dynamics (powers)
+    PQ + ...        % nonlinear dynamics (powers)
+    Dist;           % Disturbance (power)
 end
