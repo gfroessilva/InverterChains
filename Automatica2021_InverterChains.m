@@ -13,7 +13,7 @@ calcnorms = 1;
 
 if SStest == 1
 %     N = 4:32:100; % number of nodes in each inverter chain
-    N = 4:2:16; % number of nodes in each inverter chain
+    N = 4:2:40; % number of nodes in each inverter chain
 else
     N = 4;
 end
@@ -43,7 +43,7 @@ conf.L = [3.6 1.8 1.9]'*1e-3; % Reactance  [H]
 conf.Rl = [1 1 1 1]'*0;       % Resistance [Ohm]
 conf.Ll = [1 1 1 1]'*0e-3;     % Reactance  [H] ????
 
-conf.loadconfig = [1 1 1 1]'; % ??????
+conf.loadconfig = [1 1 0 1]'; % ??????
 conf.invRating = ones(4,1);
 conf.invRating(conf.loadconfig==0) = 0.5;
 conf.invRating(conf.loadconfig==1) = 1;
@@ -172,7 +172,8 @@ for n = N
     flag.SecOn = 1;
     flag.SecOnT = 0;
     flag.Dist = 1;
-    flag.DistOnT = 100;
+    flag.ic = 1;
+    flag.DistOnT = 50;
     flag.DistOffT = 1000;
     opts = odeset('RelTol',1e-9,'AbsTol',1e-9);
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -213,9 +214,9 @@ for n = N
             ctrl.G = (diag([gip1 ; gii*ones(n-2,1); gim1]) ...
                 - gip1*diag([1,ones(n-2,1)'],1)...
                 - gim1*diag([ones(n-2,1)',1],-1));...
-%                 - gim1.*diag(1,n-1)...  % two last lines implement ring connection if first line is multiplied by zero
-%                 - gip1.*diag(1,-n+1));
-%             ctrl.G = ctrl.G - diag(sum(ctrl.G,2));
+%                 - gim1.*diag(1,n-1)...             % those lines implement 
+%                 - gip1.*diag(1,-n+1));             % ring connection if first 
+%             ctrl.G = ctrl.G - diag(sum(ctrl.G,2)); % line is multiplied by zero   
             ctrl.H = diag([hip1 ; hii*ones(n-2,1); him1])...
                 - hip1*diag([1,ones(n-2,1)'],1)...
                 - him1*diag([ones(n-2,1)',1],-1);            
@@ -235,7 +236,7 @@ for n = N
 %                  diag(1,sys.n-1) + diag(1,-sys.n+1);
 %              sys.Link = -sys.Link + diag(sum(sys.Link,2));
             %% Primary Freq Controller %%%
-            ctrl.etaP = 1./sys.Past*4;
+            ctrl.etaP = 2./sys.Past;
 %             ctrl.etaP = 6e-4*ones(sys.n,1);
             ctrl.etaQ = 1./sys.Qast./800;
 %             ctrl.etaQ = 2.5e-3*ones(sys.n,1);
@@ -271,7 +272,7 @@ for n = N
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
         %% %% Initial Conditions
         delta0 = zeros(n,1);
-        omega0 = sys.omegaast*ones(n,1) - 0*[.15; .1*rand(n-1,1)];
+        omega0 = sys.omegaast*ones(n,1) + [1; .5*rand(n-1,1)]*pi*2*flag.ic;
         V0 = (sys.Vast)*ones(n,1);% - 1 + 2*rand(n,1);
         xi0 = zeros(n,1);
         zeta0 = zeros(n,1);
@@ -307,7 +308,7 @@ for n = N
         invChain.time = time;
         invChain.sys = sys;
         invChain.ctrl = ctrl;
-        invChain.colvec = colormap(hsv(n+1));
+        invChain.colvec = colormap(hsv(n));
         
         invChains(ii) = invChain;        
         clear invChain
@@ -320,72 +321,66 @@ end
 
 %% Plotting
 disp('Plotting...')
-Nplot = 4;
-y = invChains(Nplot).y;
-n = invChains(Nplot).sys.n;
-time = invChains(Nplot).time;
-P_final = invChains(Nplot).P;
-Q_final = invChains(Nplot).Q;
-colvect = invChains(Nplot).colvec;
+Nplot = 38; Controller = "C1";
+idx_N = find(ismember(N,Nplot));
 
-delta = y(:,1:n);
+if Controller=="C2"
+    idx_N = idx_N+1 + 1*(idx_N-1);
+else
+    idx_N = idx_N + 1*(idx_N-1);
+end
+    
+y = invChains(idx_N).y;
+n = invChains(idx_N).sys.n;
+time = invChains(idx_N).time;
+P_final = invChains(idx_N).P;
+Q_final = invChains(idx_N).Q;
+colvect = invChains(idx_N).colvec;
+
+delta = (y(:,1:n));
+omegastart = (conf.omegaast*time);
 omega = y(:,n+1:2*n);
 V = y(:,2*n+1:3*n);
 xi = y(:,3*n+1:4*n);
 zeta = y(:,4*n+1:5*n);
 
-% if flag.Dist && time > flag.DistOnT && time < flag.DistOffT
-%     idx_DistOn = find(ismember(time,flag.DistOnT))
-
 [~, idx_DistOn] = min(abs(time - flag.DistOnT));
 [~, idx_DistOff] = min(abs(time - flag.DistOffT));
 
-% delta_s = (delta(idx_DistOff-1) - conf.omegaast*time); % with dist
-% % ( .* time < flag.DistOffT)
-% 
-% delta_s(time > flag.DistOnT) = (delta(idx_DistOff-1) - conf.omegaast*time); % without dist
-% delta_s(time < flag.DistOffT) = (delta(idx_DistOff-1) - conf.omegaast*time); % without dist
-delta_s = 0;
-% else
-%     delta_s = (delta(end) - conf.omegaast*time(end));
-% end
-% figure
-% plot(time,delta_s)
-% return
+delta_s = zeros(size(delta));   
+delta_s(:) = repmat(delta(end-1,:) - omegastart(end-1),length(delta),1); % without dist
+delta_s(idx_DistOn:idx_DistOff,:) = repmat(delta(idx_DistOff-1,:) - omegastart(idx_DistOff-1),idx_DistOff-idx_DistOn+1,1);
 
-set(groot,'DefaultAxesFontSize', 16)
-set(groot,'DefaultAxesLineWidth',2)
+set(groot,'DefaultAxesFontSize', 12)
+set(groot,'DefaultAxesLineWidth',1.5)
 set(groot,'DefaultAxesBox','on')
 set(groot,'DefaultLineLinewidth',2.5)
 set(groot,'DefaultLegendInterpreter','latex')
 set(groot,'DefaultAxesTickLabelInterpreter','latex')
 set(groot,'DefaultTextInterpreter','latex')
 set(groot,'DefaultAxesColorOrder',colvect)
-set(groot,'DefaultAxesXLim',[0 60])
-xlimm = [100 180];
-% xlimm = [-Inf Inf];
+set(groot,'DefaultAxesColorMap',colvect)
+xlimm = [-Inf Inf];
+% xlimm = [0 100];
 
 figure(1); clf;
 hold on
-% for idx = 1:n    
-%     if idx~=n
-%         plot(time,delta(:,idx)-delta(:,idx+1)); 
-    plot(time,delta - (delta_s + conf.omegaast*time)); 
-%     else
-%         plot(time,delta(:,idx))
-%     end
-% end
+plot(time,delta - omegastart - delta_s); 
 xlabel('$t$ [s]')
 ylabel('$\delta_{i} - \delta^*$')
-% axis([xlimm -Inf Inf])
+colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+    'Direction','reverse','TickLength',0); colormap(colvect)
+axis([xlimm -Inf Inf])
 
 figure(2); clf;
-plot(time,omega);
+plot(time,omega/2/pi);
 % legend('DG1','DG2','DG3','DG4','location','best');
 xlabel('Time [s]')
 ylabel('Frequency [Hz]')
 % axis([-Inf Inf 310 320])
 axis([xlimm -Inf Inf])
+colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+    'Direction','reverse','TickLength',0); colormap(colvect)
 
 figure(3); clf;
 plot(time,xi);
@@ -394,6 +389,8 @@ plot(time,xi);
 xlabel('Time [s]')
 ylabel('$\xi$')
 axis([xlimm -Inf Inf])
+colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+    'Direction','reverse','TickLength',0); colormap(colvect)
 
 % figure(3)
 % plot(time,V);
@@ -402,6 +399,8 @@ axis([xlimm -Inf Inf])
 % xlabel('Time [s]')
 % ylabel('Voltage [V]')
 % % axis([-Inf Inf 100 400])
+% colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+%     'Direction','reverse','TickLength',0); colormap(colvect)
 
 % figure(4)
 % plot(time,zeta);
@@ -409,13 +408,17 @@ axis([xlimm -Inf Inf])
 % % title('Secondary volt var $\zeta$')
 % xlabel('Time [s]')
 % ylabel('$\zeta$')
+% colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+%     'Direction','reverse','TickLength',0); colormap(colvect)
 
 figure(4); clf;
-plot(time,P_final);
+plot(time,P_final); 
 % legend('DG1','DG2','DG3','DG4','location','best');
 % title('Active Power $P$')
 xlabel('Time [s]')
 ylabel('$P$ [W]')
+colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+    'Direction','reverse','TickLength',0); colormap(colvect)
 axis([xlimm -Inf Inf])
 
 % figure(6)
@@ -424,6 +427,8 @@ axis([xlimm -Inf Inf])
 % % title('Reactive Power $Q$')
 % xlabel('Time [s]')
 % ylabel('$Q$ [VAr]')
+% colorbar(gca,'Ticks',(0:1/(Nplot-1):1),'TickLabels',string(1:Nplot),'LineWidth',1,...
+%     'Direction','reverse','TickLength',0); colormap(colvect)
 
 % if ~exist('f','var')
     
@@ -434,14 +439,19 @@ axis([xlimm -Inf Inf])
 if calcnorms == 1
     disp('Calculating norms...')
 for idx = 1:length(invChains)
-    disp(idx)
+    disp(idx+N(1))
     n = invChains(idx).sys.n;
-    y = invChains(idx).y;    
+    y = invChains(idx).y;
+%     y(:,1:n) = wrapTo2Pi(y(:,1:n));
+    time = invChains(idx).time;    
     delta = y(:,1:n);
+%     delta = wrapTo2Pi(y(:,1:n));
+    omegastart = conf.omegaast*time;
+%     omegastart = wrapTo2Pi(conf.omegaast*time);
     xi = y(:,3*n+1:4*n);
-    time = invChains(idx).time;
     l2norma = zeros(size(y,1),n);                   % ok
     z = reshape(y, size(y,1),n,(size(y,2))/n);      % ok
+    [~, idx_DistOff] = min(abs(time - flag.DistOffT));
     for tt = time' % every time step
         idx_t = find(ismember(time,tt));
         for idx_a = 1:n % every agent
@@ -451,14 +461,17 @@ for idx = 1:length(invChains)
             ztemp(2) = ztemp(2) - conf.omegaast;
             ztemp(3) = ztemp(3) - conf.Vast;
             
+%                     delta_s(:) = repmat(delta(end-1,:) - omegastart(end-1),length(delta),1); % without dist
+%                     delta_s(idx_DistOn:idx_DistOff,:) = repmat(delta(idx_DistOff-1,:) - omegastart(idx_DistOff-1),idx_DistOff-idx_DistOn+1,1);
+
             if flag.Dist && tt > flag.DistOnT && tt < flag.DistOffT % disturbance on?                
 %                 [~, idx_DistOn] = min(abs(time - flag.DistOnT));
-                [~, idx_DistOff] = min(abs(time - flag.DistOffT));
+                ztemp(1) = ztemp(1) - omegastart(idx_t) - (delta(idx_DistOff-1,idx_a) - omegastart(idx_DistOff-1));
+%                 ztemp(1) = ztemp(1) - conf.omegaast*tt - (delta(idx_t,idx_a) - conf.omegaast*tt);
                 ztemp(4) = ztemp(4) - xi(idx_DistOff-1,idx_a); % xi - xi* (during dist)
-                ztemp(1) = ztemp(1) - conf.omegaast*tt - (delta(idx_DistOff-1,idx_a) - conf.omegaast*time(idx_DistOff-1));
             else
+                ztemp(1) = ztemp(1) - omegastart(idx_t) - (delta(end,idx_a) - omegastart(end));
                 ztemp(4) = ztemp(4) - xi(end,idx_a);
-                ztemp(1) = ztemp(1) - conf.omegaast*tt - (delta(end,idx_a) - conf.omegaast*time(end));
             end
             
             ztemp(5) = 0;
@@ -518,6 +531,7 @@ stem(N+.1,[norms_naiv_v.linf],'--*','g','linewidth',2)
 legend('DSS Controller','Standard Controller','location','best')
 xlabel('Number of agents $n$')
 ylabel('$\sup_i\left|\left|x_i-x_i^*\right|\right|_\infty$')
+xlim([N(1)-2 N(end)+2])
 xticks(N)
 
 %% Printing/Saving figures
@@ -526,10 +540,10 @@ if savefigs == 1
     
     figs = findobj(0, 'type', 'figure');
     figs = figs(end:-1:1);
-    datetime_char = char(datetime('now','format','yyyyMMMdd_hhmm'));
+    datetime_char = string(datetime('now','format','yyyyMMMdd_hhmm'));
     for k=1:length(figs)
         % print each figure in figs to a separate .eps file
-        print(figs(k), '-depsc', sprintf([datetime_char '_%d.eps'], k))
+        print(figs(k), '-depsc', sprintf("/figs/N%d_%s_%d.eps", Nplot, datetime_char, k))
         %TODO SAVE .fig
     end
 end
@@ -583,7 +597,7 @@ P = (abs(Bij).*sin(delta_ij)).*VV*Iv;
 Q = (VV.*abs(Bii) - (abs(Bij).*cos(delta_ij)).*VV)*Iv;
 
 if t>flag.DistOnT && flag.Dist && t<flag.DistOffT
-    Plr(1) = Plr(1)*.8;
+    Plr(2) = Plr(2)*1.2;
     dist = zeros(n,1);
 else
     dist = zeros(n,1);
