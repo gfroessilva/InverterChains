@@ -1,0 +1,7 @@
+Not sure which information to provide here which is missing from the actual data: i.e., in invChains(1).sys
+
+In this simulation:
+ - We communicate voltage angles between neighbour inverters.
+ - We have observed improved power sharing.
+ - Fast response.
+ - DSS property.
