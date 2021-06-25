@@ -2,10 +2,10 @@
 home
 %% Parameters
 % Microgrid's electrical parameters
-clearvars -except sol f
+clearvars -except temp sol f
 rng(1);
-
-SStest = 1; % if 1, creates length(N) chains with N inverters
+load temp
+SStest = 0; % if 1, creates length(N) chains with N inverters
 savefigs = 0;
 voltctrl = 0;
 printfigs = 1;
@@ -14,7 +14,7 @@ calcnorms = 1;
 if SStest == 1
     N = [4:2:20]; % number of nodes in each inverter chain
 else
-    N = 20;
+    N = 8;
 end
 
 controllers = ["C1"];
@@ -109,8 +109,8 @@ elseif ~exist('ctrl','var')
         else
             Optimisation_Vcte;
         end
-    catch exp
-        error(exp.message);
+    catch expt
+        error(expt.message);
     end
     if constraints == 0
         clear ctrl sol
@@ -262,7 +262,10 @@ for n = N
             
             % Communication
             % - for \xi
-            gii = gip1 + gim1;
+            gip1 = gim1;
+            lip1 = lim1;
+            
+            gii = (gip1 + gim1);
             ctrl.G = (diag([gip1 ; gii*ones(n-2,1); gim1])*0 ...
                 - gip1*diag([1,ones(n-2,1)'],1)...
                 - gim1*diag([ones(n-2,1)',1],-1)...
@@ -339,7 +342,7 @@ for n = N
         omega0 = sys.omegaast*ones(n,1) + [.5; 0.1*rand(n-1,1)]*flag.ic;
         V0 = (sys.Vast)*ones(n,1);% - 1 + 2*rand(n,1);
         xi0 = zeros(n,1);
-        zeta0 = zeros(n,1);
+        zeta0 = 0*ones(n,1);
         state0 = [delta0  % volt angle (delta)
             omega0        % freq (omega)
             V0            % volt (V)
@@ -348,7 +351,7 @@ for n = N
             ];
         %%%%%%%%%%%%%%%%%%%%%%%%%%%       
         ctrl.opt = ctrl_opt;
-        %%%% ODE %%%%%%%%%%%%%%%%%%        
+        %% %% ODE %%%%%%%%%%%%%%%%%%        
         [time,y] = ode15s(@microgrid,[0 sys.simtime], state0, opts, sys,...
             ctrl, flag);
         
@@ -398,6 +401,9 @@ plots.xi = 0;
 plots.P = 1;
 plots.Q = 0;
 plots.Pfactor = 0;
+
+Cplot = controllers(2);
+Nplot = 4;
 
 plotting
 

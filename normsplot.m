@@ -37,8 +37,8 @@ set(groot,'DefaultAxesUnits','normalized')
 if length(controllers)>1
     norms_ours_v = [invChains(1:2:end).norms];
     norms_naiv_v = [invChains(2:2:end).norms];
-    stem(N(1:end)-.1,[norms_ours_v(1:end).linf],'-*','r','linewidth',2); hold on
-    stem(N(1:end)+.1,[norms_naiv_v(1:end).linf],'--','g','linewidth',2);
+    stem(N(1:end)-.1,[norms_ours_v(1:end).linf],'-*','b','linewidth',2); hold on
+    stem(N(1:end)+.1,[norms_naiv_v(1:end).linf],'--','r','linewidth',2);
     pause(.5)
     legend('DSS Controller $C_1$','Standard Controller $C_2$','location','best')
 else    
@@ -70,8 +70,8 @@ for idxN = 1:Ns
 %     maxP(idxN) = min(min((invChains(idxN).P)));
 end
 if length(controllers)>1
-    stem(N(1:end)-.1,maxP(1:2:end),'-*','r','linewidth',2); hold on
-    stem(N(1:end)+.1,maxP(2:2:end),'--','g','linewidth',2);
+    stem(N(1:end)-.1,maxP(1:2:end),'-*','b','linewidth',2); hold on
+    stem(N(1:end)+.1,maxP(2:2:end),'--','r','linewidth',2);
     legend('DSS Controller $C_1$','Standard Controller $C_2$','location','best')
 else
     stem(N-.1,maxP(1:end),'--*','r','linewidth',2); hold on
@@ -103,8 +103,8 @@ for idxN = 1:Ns
     end
 end
 if length(controllers)>1
-    stem(N(1:end)-.1,maxQ(1:2:end),'-*','r','linewidth',2); hold on
-    stem(N(1:end)+.1,maxQ(2:2:end),'--','g','linewidth',2);
+    stem(N(1:end)-.1,maxQ(1:2:end),'-*','b','linewidth',2); hold on
+    stem(N(1:end)+.1,maxQ(2:2:end),'--','r','linewidth',2);
     legend('DSS Controller $C_1$','Standard Controller $C_2$','location','best')
 else
     stem(N-.1,maxQ(1:end),'--*','r','linewidth',2); hold on

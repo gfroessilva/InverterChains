@@ -1,8 +1,7 @@
 fprintf('Plotting...\n')
 
-Nplot = 12;
-% Nplot = 28;
-Cplot = controllers(1);
+
+
 idx_N = find(ismember(N,Nplot));
 
 ylim1 = [-Inf Inf];
@@ -13,11 +12,13 @@ subplots = 1;
 
 callstack = dbstack('-completenames');
 if strcmp(callstack(end).name,'plotting')
+    Nplot = 4;
+    Cplot = controllers(1);
     close all
     plots.powerinj = 1;
     plots.delta = 1;
     plots.omega = 1;
-    plots.xi = 0;
+    plots.xi = 1;
     plots.P = 1;
     plots.Q = 0;
     plots.Pfactor = 0;
@@ -244,13 +245,13 @@ end
 %     'TickLength',0);
 % colormap(colvect)
 
-% figure(4)
+% figure(40)
 % plot(time,zeta);
 % % legend('DG1','DG2','DG3','DG4','location','best');
 % % title('Secondary volt var $\zeta$')
 % xlabel('Time [s]')
 % ylabel('$\zeta$')
-% axis([xlimm -Inf Inf])
+% % axis([xlimm -Inf Inf])
 % colorbar(gca,'Ticks',(0:1/(Nplot-1):1),...
 %     'TickLabels',string(1:Nplot),...
 %     'LineWidth',1,...
