@@ -1,9 +1,7 @@
-# Inverter Chains
-## DSS Controller Design for Inverter Chains
-### Associated with the following publication
+# String Stability in Microgrids using Frequency Controlled Inverter Chains
+### Associated with the following publication:
 
-Authors:
+Guilherme Fróes Silva, Alejandro Donaire, Maria Seron, Aaron McFadyen, and Jason Ford. \
+"String Stability in Microgrids using Frequency Controlled Inverter Chains"
 
-Submitted to:
-
-### How to run
+Submitted to: Control System Letters in 2021.
