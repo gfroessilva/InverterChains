@@ -2,6 +2,8 @@ function plotResults(invChains,ChainToPlot,N,control,vars,wrap)
 time = invChains(ChainToPlot).time; 
 y = invChains(ChainToPlot).y;
 u = invChains(ChainToPlot).u;
+P = invChains(ChainToPlot).P;
+Q = invChains(ChainToPlot).Q;
 n =  invChains(ChainToPlot).sys.n;
 S = diag(ones(1,n))-diag((ones(1,n-1)),-1); % to calculate ang differences
 
@@ -34,7 +36,7 @@ else %% for absolute
     legend(string(1:n),'location','best')
 %     plot(time,(y(:,1:n)),'LineWidth',2)
 end
-set(gca,'FontSize',16,'LineWidth',3,'Box','on')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
 grid on
 
 %% Angle differences plot
@@ -50,7 +52,7 @@ else
     title('Angle differences $\delta_{ij}$','interpreter','latex')
 end
 legend(strcat(string(1:n-1),string((1:n-1)+1)),'location','best')
-set(gca,'FontSize',16,'LineWidth',3,'Box','on')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
 grid on
 
 %% Frequency plot
@@ -64,24 +66,51 @@ else %% for absolute
 end
 legend(string(1:n),'location','best')
 
-set(gca,'FontSize',16,'LineWidth',3,'Box','on')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
 grid on
 
-%% Secondary Variable plot
+%% Voltage plot
 figure(4)
 if strcmp(vars,'incremental')
-    plot(time,y(:,2*n:end),'LineWidth',2)
+    plot(time,y(:,2*n:3*n-1),'LineWidth',2) 
+    title('Voltage $\tilde V_i$','interpreter','latex')
+else %% for absolute
+    plot(time,y(:,n+1:2*n),'LineWidth',2) 
+    title('Voltage $\tilde V_i$','interpreter','latex')
+end
+legend(string(1:n),'location','best')
+
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
+grid on
+
+%% Secondary Variable plot (freq)
+figure(5)
+if strcmp(vars,'incremental')
+    plot(time,y(:,3*n:4*n-1),'LineWidth',2)
+    title('Secondary variable $\tilde{\xi_i}$','interpreter','latex')
+else %% for absolute    
+    plot(time,y(:,2*n+1:end),'LineWidth',2)
+    title('Secondary variable $\xi_i$','interpreter','latex')
+end
+legend(string(1:n),'location','best')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
+grid on
+
+%% Secondary Variable plot (volt)
+figure(6)
+if strcmp(vars,'incremental')
+    plot(time,y(:,4*n:end),'LineWidth',2)
     title('Secondary variable $\tilde{\zeta_i}$','interpreter','latex')
 else %% for absolute    
     plot(time,y(:,2*n+1:end),'LineWidth',2)
     title('Secondary variable $\zeta_i$','interpreter','latex')
 end
 legend(string(1:n),'location','best')
-set(gca,'FontSize',16,'LineWidth',3,'Box','on')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
 grid on
 
 %% "Control" effort
-figure(5)
+figure(7)
 if strcmp(vars,'incremental')
     plot(time,u,'LineWidth',2);   
     title('Control effort','interpreter','latex')
@@ -90,13 +119,40 @@ else %% absolute
     title('Control effort','interpreter','latex')
 end
 legend(string(1:n),'location','best')
-set(gca,'FontSize',16,'LineWidth',3,'Box','on')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
 grid on
+
+%% Active Power P
+figure(8)
+if strcmp(vars,'incremental')
+    plot(time,P,'LineWidth',2);   
+    title('Active Power P','interpreter','latex')
+else %% absolute
+    plot(time,P,'LineWidth',2);   
+    title('Active Power P','interpreter','latex')
+end
+legend(string(1:n),'location','best')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
+grid on
+
+%% Reactive Power Q
+figure(9)
+if strcmp(vars,'incremental')
+    plot(time,Q,'LineWidth',2);   
+    title('Rective Power Q','interpreter','latex')
+else %% absolute
+    plot(time,Q,'LineWidth',2);   
+    title('Rective Power Q','interpreter','latex')
+end
+legend(string(1:n),'location','best')
+set(gca,'FontSize',12,'LineWidth',3,'Box','on')
+grid on
+
 %% Infty norms plot
 if length(N)<2
     return
 else
-    figure(6)
+    figure(10)
 end
 if strcmp(vars,'incremental')
     stem(N,[invChains([invChains.control]==control).z_infnorm],'LineWidth',2) 
