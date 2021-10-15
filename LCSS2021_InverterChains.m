@@ -1,35 +1,38 @@
-%% Simpson-Porco 2015
+%% String Stability in Microgrids using Frequency Controlled Inverter Chains
+% 
+%%% Paper: 
+% G. F. Silva, A. Donaire, M. M. Seron, A. McFadyen and J. Ford, 
+% "String Stability in Microgrids Using Frequency Controlled Inverter Chains," 
+% in IEEE Control Systems Letters, vol. 6, pp. 1484-1489, 2022, doi: 10.1109/LCSYS.2021.3114143.
+%
+%%% Code:
+% 
+
 home
 %% Parameters
 % Microgrid's electrical parameters
-clearvars -except temp sol f
+clearvars -except temp sol
 rng(1);
 load temp
-SStest = 0; % if 1, creates length(N) chains with N inverters
+
+% Toggles
+SStest = 1; % if 1, creates length(N) chains with N inverters
 savefigs = 0;
 voltctrl = 0;
 printfigs = 1;
 calcnorms = 1;
+
+controllers = ["C1" "C2"];
+% C1 - DSS Controller (Proposed)
+% C2 - SimpsonPorco2015 (V-Q 'smart' tuning)
+
+ctrl_opt = 23; % Controller structure 2.3 (used in the optimisation function)
 
 if SStest == 1
     N = [4:2:20]; % number of nodes in each inverter chain
 else
     N = 8;
 end
-
-controllers = ["C1"];
-controllers = ["C2"];
-controllers = ["C1" "C2"];
-% ctrl_opt = 0; % Original    - Couldn't find solution
-% ctrl_opt = 1; % Alternate 1 - Couldn't find solution
-% ctrl_opt = 2; % Alternate 2 - Not DSS, delta deviation
-% ctrl_opt = 21; % Alternate 2.1 - No changes from above
-% ctrl_opt = 22; % Alternate 2.2 - No changes from above
-ctrl_opt = 23; % Alternate 2.3 - Best performance (communicates delta)
-% ctrl_opt = 24; % Alternate 2.4 - TODO
-
-% C1 - DSS Controller (Proposed)
-% C2 - Simpson2015 (V-Q 'smart' tuning)
 
 %%%%%%%%%%%%%%%%%%%%%%% Microgrid topology %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Inverter parameters % (for a 4 inverters chain)
@@ -43,14 +46,12 @@ conf.Qrat = .8;%[.8 .8 .8 .8]';   % Rated (max) Reactive Power [kVAr]
 % Line impedances %
 conf.R = [.8 .4 .7]';   % Resistance [Ohm]
 conf.L = [3.6 1.8 1.9]'*1e-3; % Reactance  [H]
-% conf.R = [.8 .8 .8]';   % Resistance [Ohm]
-% conf.L = [3.6 3.6 3.6]'*1e-3; % Reactance  [H]
 
 % Load impedances %
 conf.Rl = [1 1 1 1]'*0;       % Resistance [Ohm]
 conf.Ll = [1 1 1 1]'*0e-3;     % Reactance  [H] ????
 
-conf.loadconfig = [1 1 1 1]'; % ??????
+conf.loadconfig = [1 1 1 1]'; 
 conf.invRating = ones(4,1);
 conf.invRating(conf.loadconfig==0) = 0.5;
 conf.invRating(conf.loadconfig==1) = 1;
@@ -66,8 +67,8 @@ conf.dist = [1.1 1.1 1.1 1.1]';
 
 % Operation set points
 conf.omegaast = 50*2*pi; % 50Hz
-conf.Vast = 325.3;       % 230V RMS %TODO what other values make sense
-                         % changing to 500 didnt help
+conf.Vast = 325.3;       % 230V RMS 
+                         
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Allocating memory for variables
 invChains(length(N)) = struct(...
@@ -88,13 +89,13 @@ sys = conf;
 %% DSS Controller Optimisation
 % Initial parameters for the optimisation
 Zij = conf.R + conf.L*1i;   % Line Impedance
-Yij = 1./Zij;                   % Line Admittance
-gij = real(Yij);                % Line Conductance
-conf.bij = imag(Yij);                % Line Susceptance
+Yij = 1./Zij;               % Line Admittance
+gij = real(Yij);            % Line Conductance
+conf.bij = imag(Yij);       % Line Susceptance
 conf.Bij = diag(conf.bij,1) + diag(conf.bij,-1);
 conf.Gij = diag(gij,1) + diag(gij,-1);
 conf.Zl = diag(conf.Rl + conf.Ll*1i);  % Load impedance
-conf.Yl = 1./conf.Zl;                 % Load admittance
+conf.Yl = 1./conf.Zl;                  % Load admittance
 conf.Yl(conf.Yl==Inf)=0;
 conf.Bii = diag(sum(conf.Bij,1)) + imag(conf.Yl);
 
@@ -104,11 +105,7 @@ if exist('sol','var')
 elseif ~exist('ctrl','var')
     try 
         disp('Running optimisation...')
-        if voltctrl
-            Optimisation_SP;
-        else
-            Optimisation_Vcte;
-        end
+        Optimisation_Vcte;
     catch expt
         error(expt.message);
     end
@@ -116,7 +113,7 @@ elseif ~exist('ctrl','var')
         clear ctrl sol
         error('constraints not satisfied during optimisation')
     end
-    optctrl = sol
+    optctrl = sol;
 end
     
 %% loop
@@ -129,14 +126,13 @@ for n = N
     zselect = datasample(1:3,1);
     sys.R = [sys.R; repmat(conf.R(zselect),sys.n-length(sys.R)-1,1)];
     sys.L = [sys.L; repmat(conf.L(zselect),sys.n-length(sys.L)-1,1)];
-    % Loads (not used, Pl and Ql instead) ?
+    % Loads (not currently used, using Pl and Ql instead)
     sys.Rl = [sys.Rl; datasample(conf.Rl,sys.n-length(sys.Rl))];
     sys.Ll = [sys.Ll; datasample(conf.Ll,sys.n-length(sys.Ll))];
     
     % Load configuration
     sys.loadconfig = [sys.loadconfig; ...
   repmat(datasample(conf.loadconfig,1),sys.n-length(sys.loadconfig),1)];
-%         repmat(1,sys.n-length(sys.loadconfig),1)];
     sys.invRating(sys.loadconfig==0) = 0.5;
     sys.invRating(sys.loadconfig==1) = 1;
     
@@ -166,12 +162,11 @@ for n = N
     
     % Disturbance    
     sys.dist = [sys.dist; datasample(conf.dist,sys.n-length(sys.dist))];
-    
-    
+      
     Zij = sys.R + sys.L*1i;   % Line Impedance
-    Yij = 1./Zij;                   % Line Admittance
-    gij = real(Yij);                % Line Conductance
-    bij = imag(Yij);                % Line Susceptance %TODO
+    Yij = 1./Zij;             % Line Admittance
+    gij = real(Yij);          % Line Conductance
+    bij = imag(Yij);          % Line Susceptance %TODO
     sys.Bij = diag(bij,1) + diag(bij,-1);
     sys.Gij = diag(gij,1) + diag(gij,-1);
     
@@ -208,13 +203,14 @@ for n = N
         
         if control == "C1"            
             ctrl = optctrl;
-            if ~voltctrl
+            if ~voltctrl % Assuming constant voltage
                 ctrl.ctrlgain(1) = optctrl.tau;     % tau
                 ctrl.ctrlgain(2) = optctrl.etai;    % etaP
-                ctrl.ctrlgain(3) = 1;               % etaQ
+                ctrl.ctrlgain(3) = 1;               % (future use)
                 ctrl.ctrlgain(4) = optctrl.ki;      % kxi
-                ctrl.ctrlgain(5) = 1;               % kzeta
+                ctrl.ctrlgain(5) = 1;               % (future use)
                 
+                % if additional gains are being used
                 try ctrl.ctrlxtra(1) = optctrl.Oo;
                 catch 
                     ctrl.ctrlxtra(1) = 1;
@@ -222,7 +218,7 @@ for n = N
                 
                 try ctrl.ctrlxtra(2) = optctrl.Oxi;
                 catch
-                    ctrl.ctrlxtra(2) = 1;%optctrl.Oxi;
+                    ctrl.ctrlxtra(2) = 1;
                 end
                 
                 try ctrl.ctrlxtra(3) = 1;
@@ -232,7 +228,7 @@ for n = N
                 
                 try ctrl.ctrlxtra(4) = optctrl.Xid;
                 catch
-                    ctrl.ctrlxtra(4) = 0;%optctrl.Xid;
+                    ctrl.ctrlxtra(4) = 0;
                 end
                 
                 try ctrl.ctrlxtra(5) = optctrl.Xio;
@@ -243,19 +239,19 @@ for n = N
                 ctrl.ctrlxtra(6) = 1;
                 
                 gim1 = optctrl.comm(1);
-                gip1 = optctrl.comm(2);
+%                 gip1 = optctrl.comm(2);
                 
                 try
                 lim1 = optctrl.comm(3);
-                lip1 = optctrl.comm(4);
+%                 lip1 = optctrl.comm(4);
                 catch
                 end
                 
                 him1 = 0;                
                 hip1 = 0;
-            else                
-                gim1 = ctrl.comm(1);
-                gip1 = ctrl.comm(2);
+            else
+                gim1 = ctrl.comm(1); 
+                gip1 = ctrl.comm(2);                
                 him1 = ctrl.comm(3);
                 hip1 = ctrl.comm(4);
             end
@@ -285,7 +281,7 @@ for n = N
                
             catch
             end
-            % - for \zeta (volt control)
+            % - for \zeta (if volt control)
             hii = hip1 + him1;
             ctrl.H = diag([hip1 ; hii*ones(n-2,1); him1])...
                 - hip1*diag([1,ones(n-2,1)'],1)...
@@ -304,9 +300,7 @@ for n = N
             sys.Link = -sys.Link + diag(sum(sys.Link,2));
             %% Primary Freq Controller %%%
             ctrl.etaP = 3e-3;%1./sys.Past/2;
-%             ctrl.etaP = 6e-4*ones(6sys.n,1);
             ctrl.etaQ = 1./sys.Qast./800;
-%             ctrl.etaQ = 2.5e-3*ones(sys.n,1);
 
             %% Secondary Freq Controller %%%
             ctrl.k = 1.*ones(1,sys.n); % Int Frequency gain
@@ -410,7 +404,6 @@ plotting
 %% % --- Calculating Norms --- %%%
 normscalc
 
-%%
 normsplot
 
 %% Printing/Saving figures
@@ -429,9 +422,4 @@ if savefigs == 1
 end
 
 %%
-load handel
-% sound(.1*y(1000:16000),Fs)
-% sound(sin(1:3000));
-
 disp('*** End of Script ***') 
-%distFig('screen','east')

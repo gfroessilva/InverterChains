@@ -1,6 +1,4 @@
 # String Stability in Microgrids using Frequency Controlled Inverter Chains
-### Associated with the following publication:
+### Code for generating results of:
 
-Guilherme Fróes Silva, Alejandro Donaire, Maria Seron, Aaron McFadyen, and Jason Ford. \
-"String Stability in Microgrids using Frequency Controlled Inverter Chains" \
-Submitted to: Control System Letters in 2021.
+G. F. Silva, A. Donaire, M. M. Seron, A. McFadyen and J. Ford, "String Stability in Microgrids Using Frequency Controlled Inverter Chains," in IEEE Control Systems Letters, vol. 6, pp. 1484-1489, 2022, doi: 10.1109/LCSYS.2021.3114143.

@@ -28,7 +28,7 @@ switch ctrl_opt
     case 23
         Jip1_U = [0 0 0;
             etai*alpha/tau 0 0;
-            (Xid*alpha + lip1)/ki 0 gip1/ki];
+            lip1/ki 0 gip1/ki];
     case 24
         Jip1_U = [0 0 0;
             etai*alpha/tau 0 0;
