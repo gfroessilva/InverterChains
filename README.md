@@ -6,7 +6,7 @@ G. F. Silva, A. Donaire, M. M. Seron, A. McFadyen and J. Ford, "String Stability
 The main file ```LCSS2021_InverterChains.m```:
 1. sets up the system's parameters and the simulation settings
 2. calls an optimisation problem through ```Optimisation_Vcte.mlx```
-3. runs the simulation using ```ode45``` and the dynamics function ```microgrids.m```
+3. runs the simulation using ```ode15s``` and the dynamics function ```microgrids.m```
 4. plots results
 
 If you have questions, email g.froessilva@qut.edu.au.
